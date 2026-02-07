@@ -2,70 +2,96 @@
 
 ## Decision 1: Regex-Based Symbol Finder Instead of AST Parser
 - **Date**: 2025-02-06
-- **Context**: Python vulnhuntr uses Jedi (AST-based) for symbol resolution, which provides type inference, import chain resolution, and cross-file definition lookup. TypeScript port needs an equivalent.
-- **Decision**: Use regex-based symbol finder with 3 strategies (function/class def, method def, variable assignment) instead of porting Jedi.
-- **Alternatives**: (1) Use tree-sitter WASM for Python AST parsing, (2) Shell out to Python Jedi, (3) MCP tree-sitter server
-- **Consequences**: Simpler implementation, no Python runtime dependency; but misses type inference, can't resolve re-exports or dynamic imports. MCP tree-sitter server available as future enhancement path.
+- **Context**: Python vulnhuntr uses Jedi (AST-based) for symbol resolution. TypeScript port needs an equivalent.
+- **Decision**: Use regex-based symbol finder with 3 strategies instead of porting Jedi.
+- **Alternatives**: (1) tree-sitter WASM, (2) Shell out to Python Jedi, (3) MCP tree-sitter server
+- **Consequences**: Simpler; misses type inference; MCP tree-sitter available as future enhancement.
 
 ## Decision 2: Claude Prefill Technique for JSON Responses
 - **Date**: 2025-02-06
-- **Context**: Claude consistently wraps JSON in markdown fences or adds commentary. Python vulnhuntr solves this by injecting a partial JSON string as an assistant message.
-- **Decision**: Replicate the prefill technique: append `'{"scratchpad": "1.'` as instruction, reconstruct if response doesn't start with `{`. Combined with fixJsonResponse() pipeline for robustness.
-- **Alternatives**: (1) Use Claude's JSON mode (not available in all models), (2) Post-processing only
-- **Consequences**: Very reliable JSON extraction; requires the prefill constant to match the expected response schema.
+- **Context**: Claude wraps JSON in markdown fences. Python vulnhuntr injects partial JSON as assistant message.
+- **Decision**: Replicate prefill technique + fixJsonResponse() pipeline.
+- **Consequences**: Reliable JSON extraction; prefill must match expected schema.
 
 ## Decision 3: Simulated Conversation History
 - **Date**: 2025-02-06
-- **Context**: Python vulnhuntr uses true multi-turn Claude API (appending messages to a conversation). VoltAgent Agent.generateText() doesn't expose multi-turn message arrays.
-- **Decision**: Simulate conversation via prompt context blocks — each LLMSession.chat() call includes all prior exchanges as `<previous_analysis>` XML blocks in the prompt.
-- **Alternatives**: (1) Use AI SDK directly bypassing VoltAgent Agent, (2) Maintain external AI SDK conversation
-- **Consequences**: Works within VoltAgent's abstraction; increases prompt token usage with each iteration; cap at 7 iterations limits growth.
+- **Context**: VoltAgent Agent.generateText() doesn't expose multi-turn message arrays.
+- **Decision**: Simulate via `<previous_analysis>` XML blocks in prompts.
+- **Consequences**: Works within VoltAgent; increases tokens per iteration; capped at 7.
 
 ## Decision 4: Budget Enforcement with Escalating-Cost Detection
 - **Date**: 2025-02-07
-- **Context**: Long analyses on large repos can burn significant API budget. Python vulnhuntr had basic budget checking. Need smarter early termination.
-- **Decision**: BudgetEnforcer with three checks: (1) total budget cap, (2) per-file fair-share budget, (3) escalating cost detection — if current iteration costs >2× the average of prior iterations for the same file, stop.
-- **Alternatives**: (1) Simple total-budget-only cap, (2) Fixed per-file budget, (3) Token-count limits
-- **Consequences**: Prevents runaway spending on files that generate increasingly verbose context; fair-share lets remaining files get adequate budget.
+- **Decision**: BudgetEnforcer with 3 checks: total cap, per-file fair-share, escalating cost (>2× average).
+- **Consequences**: Prevents runaway spending; fair distribution across files.
 
 ## Decision 5: Config File Format — YAML with Fallbacks
 - **Date**: 2025-02-07
-- **Context**: Python vulnhuntr uses `.vulnhuntr.yaml`. Need to support same format for compatibility plus user convenience.
-- **Decision**: Primary: YAML via `yaml` npm package. Fallbacks: JSON parse, then key=value line parsing. Config search: recursive upward from repo root + `~/.vulnhuntr.yaml`.
-- **Alternatives**: (1) YAML only, (2) TOML, (3) JSON only
-- **Consequences**: Maximum compatibility with Python version; fallbacks handle edge cases; recursive search matches common config-file conventions.
+- **Decision**: YAML primary, JSON/key-value fallbacks. Search: recursive upward + ~/.vulnhuntr.yaml.
+- **Consequences**: Compatible with Python version; handles edge cases.
 
 ## Decision 6: Atomic Checkpoint Writes
 - **Date**: 2025-02-07
-- **Context**: SIGINT during checkpoint write could corrupt the file, losing all progress.
-- **Decision**: Write to temp file (`checkpoint.tmp`) then rename. SIGINT handler calls save() before exit.
-- **Alternatives**: (1) Direct file write, (2) SQLite-based checkpoint, (3) Append-only log
-- **Consequences**: Rename is atomic on all major filesystems; minimal complexity; SIGINT handler ensures progress is saved even on Ctrl+C.
+- **Decision**: Write temp file → rename. SIGINT handler calls save().
+- **Consequences**: Atomic on all filesystems; progress saved on Ctrl+C.
 
 ## Decision 7: Enriched Finding Model (18+ Fields)
 - **Date**: 2025-02-07
-- **Context**: Python vulnhuntr has a rich Finding model with severity, CWE names, line numbers, metadata. Initial TypeScript port had a minimal schema.
-- **Decision**: Expand FindingSchema to 18+ fields matching Python: add rule_id, title, start_line, end_line, start_column, end_column, severity enum (5 levels), cwe, cwe_name, metadata (discovered_at, model, iteration). Add responseToFinding() converter.
-- **Alternatives**: (1) Keep minimal schema, add fields lazily, (2) Use Python Finding model directly via JSON interface
-- **Consequences**: SARIF reports have full detail (fingerprints, codeFlows, taxonomies); CSV export has all columns; severity-based sorting works across all reporters.
+- **Decision**: 18+ field FindingSchema with severity enum, CWE names, line numbers, metadata, responseToFinding() converter.
+- **Consequences**: Full SARIF detail; severity sorting across all reporters.
 
 ## Decision 8: HMAC-SHA256 Webhook Signing
 - **Date**: 2025-02-07
-- **Context**: Webhook notifications need authentication to prevent spoofing.
-- **Decision**: HMAC-SHA256 signature in `X-Vulnhuntr-Signature` header, format: `sha256=<hex>`. Matches GitHub webhook signing convention.
-- **Alternatives**: (1) Bearer token auth, (2) API key in header, (3) No signing
-- **Consequences**: Standard approach; recipients can verify payload integrity; optional (only if secret configured).
+- **Decision**: HMAC-SHA256 in `X-Vulnhuntr-Signature` header, GitHub convention.
+- **Consequences**: Standard; verifiable; optional.
 
 ## Decision 9: VoltAgent Framework over Raw AI SDK
 - **Date**: 2025-02-06
-- **Context**: Could implement vulnhuntr as a plain TypeScript app using AI SDK directly. VoltAgent adds Agent/Workflow/Tool abstractions.
-- **Decision**: Use VoltAgent for its workflow chain pattern, tool registry, and MCP integration support.
-- **Alternatives**: (1) Raw AI SDK with custom orchestration, (2) LangChain.js, (3) Plain TypeScript
-- **Consequences**: Clean 5-step workflow chain; built-in tool management; MCP server support; but tied to VoltAgent's abstractions (e.g., no direct multi-turn message control).
+- **Decision**: Use VoltAgent for workflow chain, tool registry, MCP integration.
+- **Consequences**: Clean workflow chain; tied to VoltAgent abstractions.
 
-## Decision 10: Template Cleanup — Remove All Non-Vulnhuntr Code
+## Decision 10: Template Cleanup
 - **Date**: 2025-02-07
-- **Context**: Project started from VoltAgent template with weather tools and expense approval workflow. These are irrelevant.
-- **Decision**: Remove weather.ts, expense approval workflow, all template references. Keep only vulnhuntr-related code. Preserve VoltAgent setup instructions in README.
-- **Alternatives**: (1) Keep templates as examples, (2) Move to examples/ directory
-- **Consequences**: Clean codebase focused entirely on vulnhuntr; README retains VoltAgent setup instructions for new developers.
+- **Decision**: Remove all non-vulnhuntr template code. Keep VoltAgent setup in README.
+- **Consequences**: Clean focused codebase.
+
+## Decision 11: workflowState for Services (Not Data Flow)
+- **Date**: 2025-02-07
+- **Context**: The previous workflow stored mutable services (CostTracker, BudgetEnforcer, AnalysisCheckpoint) in the data flow using `_`-prefixed keys and `(data as any)` casts. This broke type safety and polluted the data between steps.
+- **Decision**: Store all mutable services and cross-step context in `workflowState` via a `VulnHuntrState` interface. Use `setWorkflowState` to initialize in setup-repo. Access via `workflowState as VulnHuntrState` in all subsequent steps.
+- **Alternatives**: (1) Keep in data flow with type assertions, (2) Module-level singletons, (3) Context map
+- **Consequences**: Clean data flow (only analysis-relevant data); services persist through andForEach data reset; `as VulnHuntrState` casts required (VoltAgent doesn't support generics for state yet).
+
+## Decision 12: andForEach for Per-File Analysis (Not Manual Loop)
+- **Date**: 2025-02-07
+- **Context**: Previous workflow had a monolithic 300-line andThen step with nested for-loops for file analysis. This was anti-idiomatic VoltAgent.
+- **Decision**: Use `andForEach` with `items` selector, `map` function, `concurrency: 1` for per-file analysis. Extract the inner logic to a standalone `analyzeFile()` function.
+- **Alternatives**: (1) Keep monolithic step, (2) andDoWhile with manual index, (3) Multiple andThen steps
+- **Consequences**: VoltAgent manages iteration; per-file results collected as array; `concurrency: 1` ensures serial execution for budget/checkpoint safety; andForEach REPLACES accumulated data with results array (must use workflowState for context).
+
+## Decision 13: andAll for Parallel Operations
+- **Date**: 2025-02-07
+- **Context**: File discovery and README summarization are independent. Six report formats are independent. Running them sequentially wastes time.
+- **Decision**: Use `andAll` for (1) parallel discovery + README summarization, (2) parallel report generation (6 formats).
+- **Alternatives**: (1) Sequential andThen steps, (2) andRace (wrong semantics), (3) Manual Promise.all
+- **Consequences**: Faster execution; andAll merges parallel results into one object AND preserves previous accumulated data; report generation is embarrassingly parallel.
+
+## Decision 14: andTap for Logging (Separated Side Effects)
+- **Date**: 2025-02-07
+- **Context**: Previous workflow mixed console.log into business logic. Logging is a side effect that shouldn't affect data flow or error handling.
+- **Decision**: Use `andTap` at phase boundaries for observability. 5 andTap steps: log-setup, log-discovery, log-findings, log-reports, log-summary.
+- **Alternatives**: (1) Console.log in andThen steps, (2) Hooks only, (3) External logger
+- **Consequences**: Clean separation of concerns; andTap errors are caught (workflow continues); return values ignored (data passes through unchanged).
+
+## Decision 15: New LLM Session Per File (Not Shared)
+- **Date**: 2025-02-07
+- **Context**: Python vulnhuntr shares one session across files but clears history between them. With andForEach, sharing a session via workflowState would require synchronization.
+- **Decision**: Create a new LLMSession per file inside analyzeFile(). Conversation history accumulates within a file (across phases and vuln types) and is discarded between files.
+- **Alternatives**: (1) Share session via workflowState (requires clearing between files), (2) Store sessions in a pool
+- **Consequences**: Clean isolation per file; equivalent to Python behavior (clear history = new session); no synchronization needed; minor overhead from Agent construction (negligible).
+
+## Decision 16: getStepData in Finalize for Safe Data Recovery
+- **Date**: 2025-02-07
+- **Context**: After andAll(reports) and andWhen(cleanup), the data shape may differ from what collect-findings returned. The finalize step needs the full WorkflowResult fields (findings, files_analyzed, etc.).
+- **Decision**: Use `getStepData("collect-findings")?.output` as primary data source in finalize, with `data` as fallback.
+- **Alternatives**: (1) Store WorkflowResult in workflowState, (2) Rely on data flow preservation through andAll, (3) Re-compute from workflowState
+- **Consequences**: Robust against data-flow changes from andAll/andWhen; clean fallback; `getStepData` API availability in all step types assumed from docs.

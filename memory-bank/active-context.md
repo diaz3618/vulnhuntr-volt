@@ -1,35 +1,50 @@
 # Active Context — vulnhuntr-volt
 
 ## Current State (2026-02-07)
-All implementation work is complete. The project is a feature-complete port of Python vulnhuntr to TypeScript/VoltAgent with zero compilation errors and a passing production build.
+Phase 6 complete: the workflow has been refactored from a simple 5-step sequential `andThen` chain to an idiomatic VoltAgent workflow leveraging the full Chain API. Build passes (0 errors, 194.30 KB, 102ms).
 
 ## What Was Just Completed
-Full gap analysis + implementation of all missing features identified between Python vulnhuntr and the TypeScript port:
+**VoltAgent Best Practices Refactoring** — Complete rewrite of `src/workflows/vulnhuntr.ts` (952 lines):
 
-1. **Template cleanup** — Removed weather.ts, expense approval workflow, and all VoltAgent template references
-2. **6 new modules created**:
-   - `src/llm/index.ts` — LLMSession with Claude prefill trick, JSON fixing (invalid escapes, Python None/True/False → null/true/false), conversation history context
-   - `src/cost-tracker/index.ts` — CostTracker (per-call tracking, per-file/model cost breakdown), BudgetEnforcer (budget limits, escalating-cost detection, per-file/per-iteration limits), pricing table for 14 models, dry-run estimation
-   - `src/config/index.ts` — .vulnhuntr.yaml config file support (project root + home dir search), defaultConfig(), loadConfig(), mergeConfigWithInput()
-   - `src/checkpoint/index.ts` — AnalysisCheckpoint with save/resume/finalize, SIGINT handler for graceful shutdown, atomic temp-file writes
-   - `src/integrations/github-issues.ts` — GitHub issue creation with duplicate detection, severity filtering, rate limiting
-   - `src/integrations/webhook.ts` — Webhook notifications with HMAC-SHA256 signing, Slack/Discord/Teams/JSON formats
-3. **Enriched schemas** — FindingSchema expanded from 7 to 18+ fields (severity enum, line numbers, CWE names, discovered_at, metadata, context_code), responseToFinding() converter, FindingSeverity 5-level enum, SEVERITY_SCORES, CWE_NAMES
-4. **Enriched reporters** — SARIF (partialFingerprints via SHA-256, codeFlows, taxonomies, invocations, security-severity), JSON (severity breakdown, scratchpad, line numbers), Markdown (collapsible details, 5-level severity emojis, severity breakdown table), HTML (interactive collapsible findings, severity badges, keyboard shortcuts, print CSS), **new CSV reporter**
-5. **Network patterns expanded** — From ~50 to ~120 patterns (added Pyramid, Bottle, Quart, web2py, Hug, Dash, Responder, HTTP clients, async handlers, XML/file/DB/template patterns)
-6. **Workflow fully wired** — All new modules integrated into vulnhuntr.ts: cost tracking on every LLM call, budget enforcement per-file and per-iteration, checkpoint start/resume/finalize, config loading + merge, improved termination logic (same-context-names detection), responseToFinding() for enriched findings, CSV + cost report output
-7. **README updated** — Added vulnhuntr features, vuln types table, usage examples, updated project structure; kept VoltAgent instructions
+### Research (VoltAgent Docs + GitHub)
+- Read all 14 bundled workflow docs from `node_modules/@voltagent/core/docs/workflows/`
+- Read 3 skill files (best-practices, docs-bundle, create-voltagent)
+- Studied GitHub workflow examples (`with-workflow-chain/src/index.ts`)
+- Identified 12 anti-patterns in the previous implementation
+
+### Anti-patterns Fixed
+1. **All `andThen`** → now uses `andThen`, `andAll`, `andForEach`, `andWhen`, `andTap`
+2. **Monolithic 300-line analyze step** → extracted `analyzeFile()` standalone function
+3. **No `andAll` parallelism** → parallel file discovery + README, parallel report gen (6 formats)
+4. **No `andForEach`** → per-file analysis with `items` selector, `map`, `concurrency: 1`
+5. **No `workflowState`** → `VulnHuntrState` interface, `setWorkflowState`/`workflowState` throughout
+6. **`(data as any)` casts** → eliminated via workflowState for services, clean data returns
+7. **`_`-prefixed internal data keys** → services live in workflowState, not data flow
+8. **No `andTap` for logging** → 5 andTap steps at phase boundaries
+9. **No `andWhen` for conditionals** → conditional clone cleanup
+10. **No comprehensive hooks** → onStart, onStepStart, onStepEnd, onError, onFinish
+11. **No retry policies** → `retryConfig` workflow-wide + `retries: 2` on setup-repo
+12. **No `getStepData`** → used in finalize to recover collect-findings data
+
+### New Architecture
+```
+setup-repo → andTap → andAll(discover-files + summarize-readme) → prepare-analysis
+→ andTap → andForEach(analyze-files) → collect-findings → andTap
+→ andAll(6 report writers) → andTap → andWhen(cleanup-cloned) → finalize → andTap
+```
 
 ## Known Issues
 - MCP servers require npx at runtime (graceful degradation if unavailable)
-- Symbol finder is regex-based (no Jedi AST — acceptable tradeoff for TypeScript port)
-- No unit tests yet for the new modules
+- Symbol finder is regex-based (no Jedi AST)
+- No unit tests yet for modules
 - No CLI entry point (uses VoltAgent server API)
-- Conversation history in LLMSession is simulated via prompt context blocks, not true multi-turn API
+- `workflowState` typing relies on `as VulnHuntrState` casts (VoltAgent doesn't support generics for state yet)
+- `andWhen` condition function: `workflowState` availability unconfirmed — using `data.is_cloned` as fallback
+- `getStepData` availability inside `andForEach` inner steps unconfirmed — not relied upon there
 
 ## Next Steps
 - Runtime test with an actual Python repository
 - Write unit tests for new modules (cost-tracker, config, checkpoint, llm, reporters)
+- Verify workflowState/getStepData behavior in forEach inner steps at runtime
 - Consider adding a CLI runner for direct invocation
-- Install MCP server packages globally for production use
-- Test webhook + GitHub Issues integrations with real endpoints
+- Consider `andGuardrail` for input validation and `andSleep` for rate limiting

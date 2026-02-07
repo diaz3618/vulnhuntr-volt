@@ -1,25 +1,56 @@
 /**
  * VulnHuntr VoltAgent Workflow
  * ============================
- * Full replication of the vulnhuntr vulnerability analysis pipeline as a
- * VoltAgent workflow chain. Implements:
+ * Idiomatic VoltAgent workflow leveraging the full Chain API for
+ * LLM-powered Python vulnerability analysis.
  *
- *   1. Repository setup (local or GitHub clone)
- *   2. File discovery & network-related filtering
- *   3. README summarization for security context
- *   4. Per-file Phase 1: Initial analysis (all 7 vuln types)
- *   5. Per-vuln Phase 2: Iterative secondary analysis (up to N iterations)
- *   6. Context expansion via symbol resolution
- *   7. Finding collection (confidence ≥ threshold)
- *   8. Report generation (SARIF, JSON, Markdown, HTML)
+ * Architecture:
+ *   ┌──────────────┐
+ *   │  setup-repo   │  Clone/validate, init services → workflowState
+ *   └──────┬────────┘
+ *          ▼
+ *   ┌──────────────────────────┐
+ *   │  discover-and-summarize  │  andAll: parallel file scan + README AI
+ *   │  ├─ discover-files       │
+ *   │  └─ summarize-readme     │
+ *   └──────────┬───────────────┘
+ *              ▼
+ *   ┌──────────────────┐
+ *   │  prepare-analysis │  Store analysis context in workflowState
+ *   └────────┬─────────┘
+ *            ▼
+ *   ┌───────────────────┐
+ *   │   analyze-files    │  andForEach: per-file Phase 1→2 analysis
+ *   │   └─ analyze-file  │
+ *   └────────┬──────────┘
+ *            ▼
+ *   ┌─────────────────┐
+ *   │ collect-findings │  Flatten results, build summary
+ *   └────────┬────────┘
+ *            ▼
+ *   ┌──────────────────────┐
+ *   │   generate-reports    │  andAll: parallel report writing
+ *   │   ├─ write-json       │
+ *   │   ├─ write-sarif      │
+ *   │   ├─ write-markdown   │
+ *   │   ├─ write-html       │
+ *   │   ├─ write-csv        │
+ *   │   └─ write-cost       │
+ *   └──────────┬───────────┘
+ *              ▼
+ *   ┌───────────────────────────┐
+ *   │  cleanup-and-finalize     │  andWhen(cloned → cleanup), disconnect MCP
+ *   └───────────────────────────┘
  */
 
 import {
   Agent,
   createWorkflowChain,
   andThen,
+  andAll,
   andForEach,
-  andDoWhile,
+  andWhen,
+  andTap,
 } from "@voltagent/core";
 import { z } from "zod";
 import * as fs from "node:fs";
@@ -28,13 +59,10 @@ import * as path from "node:path";
 import {
   type Finding,
   type Response,
-  type ContextCode,
-  type WorkflowInput,
   type WorkflowResult,
   WorkflowInputSchema,
   WorkflowResultSchema,
   ResponseSchema,
-  CWE_MAP,
   responseToFinding,
 } from "../schemas/index.js";
 
@@ -72,12 +100,44 @@ import { AnalysisCheckpoint, type CheckpointData } from "../checkpoint/index.js"
 import {
   fixJsonResponse,
   createAnalysisSession,
-  createReadmeSession,
   type LLMSession,
 } from "../llm/index.js";
 
 // ---------------------------------------------------------------------------
-// Response format schema string (for prompts)
+// Shared Workflow State
+// ---------------------------------------------------------------------------
+// workflowState holds mutable services and cross-step context that persists
+// across the entire workflow run — including through andForEach boundaries
+// where the data flow is replaced by an array of results.
+// ---------------------------------------------------------------------------
+
+interface VulnHuntrState {
+  // Services
+  costTracker: CostTracker;
+  budgetEnforcer: BudgetEnforcer;
+  checkpoint: AnalysisCheckpoint;
+  mcpTools: Tool<any>[];
+  mcpConfig: MCPConfiguration<MCPServerKey> | null;
+
+  // Analysis configuration (derived from input + config file)
+  modelStr: string;
+  systemPrompt: string;
+  maxIterations: number;
+  minConfidence: number;
+  requestedVulnTypes: string[];
+
+  // Repository context
+  localPath: string;
+  isCloned: boolean;
+  allFiles: string[];
+
+  // Reporting
+  reportsDir: string;
+  timestamp: string;
+}
+
+// ---------------------------------------------------------------------------
+// Response format schema string (embedded in LLM prompts)
 // ---------------------------------------------------------------------------
 
 const RESPONSE_FORMAT_SCHEMA = JSON.stringify(
@@ -118,11 +178,11 @@ const RESPONSE_FORMAT_SCHEMA = JSON.stringify(
     ],
   },
   null,
-  2
+  2,
 );
 
 // ---------------------------------------------------------------------------
-// Helper: resolve model string for VoltAgent
+// Helpers
 // ---------------------------------------------------------------------------
 
 function resolveModel(provider: string, model?: string): string {
@@ -135,18 +195,11 @@ function resolveModel(provider: string, model?: string): string {
   return defaults[provider] ?? defaults.anthropic;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: parse LLM response safely
-// ---------------------------------------------------------------------------
-
 function parseLLMResponse(text: string): Response {
   const cleaned = fixJsonResponse(text);
-
   try {
-    const parsed = JSON.parse(cleaned);
-    return ResponseSchema.parse(parsed);
+    return ResponseSchema.parse(JSON.parse(cleaned));
   } catch {
-    // Return a minimal valid response if parsing fails
     return {
       scratchpad: text,
       analysis: "Failed to parse structured response",
@@ -158,10 +211,6 @@ function parseLLMResponse(text: string): Response {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helper: extract text between XML tags
-// ---------------------------------------------------------------------------
-
 function extractBetweenTags(tag: string, text: string): string {
   const regex = new RegExp(`<${tag}>(.*?)</${tag}>`, "s");
   const match = text.match(regex);
@@ -169,50 +218,265 @@ function extractBetweenTags(tag: string, text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// The main vulnhuntr analysis workflow
+// Per-file analysis function
+// ---------------------------------------------------------------------------
+// Extracted from the workflow step so the forEach body stays clean.
+// Runs Phase 1 (initial analysis for all 7 vuln types) and Phase 2
+// (iterative secondary analysis per discovered vuln type).
+// ---------------------------------------------------------------------------
+
+async function analyzeFile(
+  relativeFilePath: string,
+  ws: VulnHuntrState,
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+
+  // Budget gate
+  if (!ws.budgetEnforcer.check(ws.costTracker.totalCost, ws.costTracker.getFileCost(relativeFilePath))) {
+    console.warn(`   ⚠️  Budget limit reached. Skipping ${relativeFilePath}.`);
+    return findings;
+  }
+
+  // Read source
+  const fullPath = path.resolve(ws.localPath, relativeFilePath);
+  let fileContent: string;
+  try {
+    fileContent = fs.readFileSync(fullPath, "utf-8");
+  } catch {
+    console.warn(`   ⚠️  Could not read ${relativeFilePath}, skipping`);
+    return findings;
+  }
+
+  // Update checkpoint
+  ws.checkpoint.setCurrentFile(relativeFilePath);
+
+  // Create a fresh LLM session per file (conversation history is per-file)
+  const session: LLMSession = createAnalysisSession(
+    ws.systemPrompt,
+    ws.modelStr,
+    ws.costTracker,
+  );
+  session.setContext(relativeFilePath, "initial");
+
+  // =====================================================================
+  // Phase 1: Initial Analysis
+  // =====================================================================
+  const initialPrompt = buildInitialPrompt(
+    relativeFilePath,
+    fileContent,
+    RESPONSE_FORMAT_SCHEMA,
+  );
+
+  let initialReport: Response;
+  try {
+    const responseText = await session.chat(initialPrompt, 8192);
+    initialReport = parseLLMResponse(responseText);
+  } catch (error) {
+    console.warn(
+      `   ⚠️  Initial analysis failed for ${relativeFilePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    ws.checkpoint.markFileComplete(relativeFilePath);
+    return findings;
+  }
+
+  const vulnTypes = initialReport.vulnerability_types;
+  if (vulnTypes.length === 0) {
+    console.log(`   ✓ No potential vulnerabilities found`);
+    ws.checkpoint.markFileComplete(relativeFilePath);
+    return findings;
+  }
+
+  console.log(`   🔎 Potential vulns: ${vulnTypes.join(", ")}`);
+
+  // =====================================================================
+  // Phase 2: Secondary Analysis (per vuln type)
+  // =====================================================================
+  for (const vulnType of vulnTypes) {
+    // Filter to requested vuln types
+    if (ws.requestedVulnTypes.length > 0 && !ws.requestedVulnTypes.includes(vulnType)) continue;
+    if (!VULN_SPECIFIC_BYPASSES_AND_PROMPTS[vulnType]) {
+      console.warn(`   ⚠️  Unknown vuln type: ${vulnType}`);
+      continue;
+    }
+
+    session.setContext(relativeFilePath, `secondary-${vulnType}`);
+
+    let currentReport: Response = initialReport;
+    let previousAnalysisJson = JSON.stringify(initialReport);
+    let lastContextCount = -1;
+    let prevContextNames: string[] = [];
+    const codeDefinitions: Array<{
+      name: string;
+      contextNameRequested: string;
+      filePath: string;
+      source: string;
+    }> = [];
+
+    for (let iteration = 0; iteration < ws.maxIterations; iteration++) {
+      // Budget gate per iteration
+      if (!ws.budgetEnforcer.check(ws.costTracker.totalCost)) {
+        console.warn(`   ⚠️  Budget limit reached during secondary analysis.`);
+        break;
+      }
+
+      // Escalating cost detection
+      const iterCost = ws.costTracker.getFileCost(relativeFilePath);
+      if (!ws.budgetEnforcer.shouldContinueIteration(relativeFilePath, iteration, iterCost, ws.costTracker.totalCost)) {
+        break;
+      }
+
+      // Resolve new context symbols (skip iteration 0 — uses initial report)
+      if (iteration > 0 && currentReport.context_code.length > 0) {
+        const currentContextNames = currentReport.context_code.map((c) => c.name).sort();
+
+        // Terminate if same symbols requested twice in a row
+        if (
+          currentReport.context_code.length === lastContextCount ||
+          JSON.stringify(currentContextNames) === JSON.stringify(prevContextNames)
+        ) {
+          break;
+        }
+        lastContextCount = currentReport.context_code.length;
+        prevContextNames = currentContextNames;
+
+        for (const ctx of currentReport.context_code) {
+          const result = extractSymbol(ctx.name, ctx.code_line, ws.allFiles, ws.localPath);
+          if (result) codeDefinitions.push(result);
+        }
+      } else if (iteration > 0 && currentReport.context_code.length === 0) {
+        break; // No more context requested
+      }
+
+      // Build & send secondary prompt
+      const secondaryPrompt = buildSecondaryPrompt(
+        relativeFilePath,
+        fileContent,
+        codeDefinitions,
+        vulnType,
+        previousAnalysisJson,
+        RESPONSE_FORMAT_SCHEMA,
+      );
+
+      try {
+        const responseText = await session.chat(secondaryPrompt, 8192);
+        currentReport = parseLLMResponse(responseText);
+        previousAnalysisJson = JSON.stringify(currentReport);
+      } catch (error) {
+        console.warn(
+          `   ⚠️  Secondary iteration ${iteration + 1} failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        break;
+      }
+    }
+
+    // Collect finding if above confidence threshold
+    if (currentReport.confidence_score >= ws.minConfidence) {
+      const finding = responseToFinding(currentReport, relativeFilePath, vulnType);
+      findings.push(finding);
+      console.log(
+        `   🚨 ${vulnType} finding (confidence: ${currentReport.confidence_score}/10, severity: ${finding.severity})`,
+      );
+    }
+  }
+
+  ws.checkpoint.markFileComplete(relativeFilePath);
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Report-writing helper (reduces duplication in the parallel andAll)
+// ---------------------------------------------------------------------------
+
+function buildResultForReport(data: any): WorkflowResult {
+  return {
+    findings: data.findings ?? [],
+    files_analyzed: data.files_analyzed ?? [],
+    total_cost_usd: data.total_cost_usd ?? 0,
+    summary: data.summary ?? {
+      total_files: 0,
+      total_findings: 0,
+      by_vuln_type: {},
+      by_confidence: {},
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The Workflow
 // ---------------------------------------------------------------------------
 
 export const vulnhuntrWorkflow = createWorkflowChain({
   id: "vulnhuntr-analysis",
   name: "VulnHuntr Security Analysis",
   purpose:
-    "Analyze a Python repository for remotely exploitable vulnerabilities using LLM-powered static analysis. Supports 7 vulnerability types: LFI, RCE, SSRF, AFO, SQLI, XSS, IDOR.",
+    "Analyze a Python repository for remotely exploitable vulnerabilities using " +
+    "LLM-powered static analysis. Supports 7 vulnerability types: LFI, RCE, " +
+    "SSRF, AFO, SQLI, XSS, IDOR.",
 
   input: WorkflowInputSchema,
   result: WorkflowResultSchema,
 
+  // Workflow-wide retry policy (individual steps can override with retries: N)
+  retryConfig: { attempts: 1, delayMs: 1000 },
+
+  // ─── Lifecycle Hooks ────────────────────────────────────────────────
   hooks: {
     onStart: async (state) => {
       console.log(`\n🛡️  VulnHuntr Analysis Started`);
       console.log(`   Repository: ${state.data.repo_path}`);
-      console.log(`   Provider: ${state.data.provider}`);
+      console.log(`   Provider:   ${state.data.provider}`);
+      if (state.data.model) console.log(`   Model:      ${state.data.model}`);
+      console.log(`   Execution:  ${state.executionId}`);
     },
+
     onStepStart: async (state) => {
-      console.log(`   → Step ${state.active} (${state.status})`);
+      const id = (state as any).stepId ?? (state as any).active ?? "";
+      if (id) console.log(`\n   → [${id}]`);
     },
+
+    onStepEnd: async (state) => {
+      const id = (state as any).stepId ?? (state as any).active ?? "";
+      if (id) console.log(`   ← [${id}] done`);
+    },
+
+    onError: async (info) => {
+      console.error(`\n❌ Workflow error: ${info.error}`);
+      // Best-effort: save checkpoint on error
+      try {
+        const ws = (info as any).state?.workflowState as VulnHuntrState | undefined;
+        if (ws?.checkpoint) ws.checkpoint.save();
+      } catch { /* best-effort */ }
+    },
+
     onFinish: async (info) => {
       if (info.status === "completed") {
-        console.log(`\n✅ Analysis completed`);
+        console.log(`\n✅ Analysis completed successfully`);
       } else if (info.status === "error") {
         console.error(`\n❌ Analysis failed: ${info.error}`);
+      } else if (info.status === "cancelled") {
+        console.log(`\n⛔ Analysis was cancelled`);
+      } else if (info.status === "suspended") {
+        console.log(`\n⏸️  Analysis suspended`);
       }
     },
   },
 })
 
-  // ===========================================================================
+  // =====================================================================
   // Step 1: Repository Setup
-  // Resolve GitHub URLs, validate paths, set up local working directory
-  // ===========================================================================
+  // Clone GitHub repos, validate paths, load config, init services.
+  // All mutable services go into workflowState — NOT the data flow.
+  // =====================================================================
   .andThen({
     id: "setup-repo",
-    execute: async ({ data }) => {
+    retries: 2, // Network clone can be flaky
+    execute: async ({ data, setWorkflowState }) => {
       let localPath = data.repo_path;
       let isCloned = false;
       let owner = "";
       let repo = "";
 
-      // Handle GitHub URLs/shorthands
+      // Clone GitHub repos
       if (isGitHubPath(data.repo_path)) {
         const parsed = parseGitHubUrl(data.repo_path);
         if (!parsed) throw new Error(`Invalid GitHub URL: ${data.repo_path}`);
@@ -222,7 +486,7 @@ export const vulnhuntrWorkflow = createWorkflowChain({
 
         const tmpDir = path.join(
           (await import("node:os")).tmpdir(),
-          `vulnhuntr-${owner}-${repo}-${Date.now()}`
+          `vulnhuntr-${owner}-${repo}-${Date.now()}`,
         );
         console.log(`   📥 Cloning ${owner}/${repo}...`);
         cloneRepo(parsed.fullUrl, tmpDir, true);
@@ -235,29 +499,27 @@ export const vulnhuntrWorkflow = createWorkflowChain({
         throw new Error(`Repository path does not exist: ${localPath}`);
       }
 
-      // Load config (.vulnhuntr.yaml) and merge with CLI input
+      // Load config & merge with CLI input
       console.log(`   ⚙️  Loading configuration...`);
       const config = loadConfig(localPath);
-      const mergedConfig = mergeConfigWithInput(config, data as Record<string, any>);
+      const merged = mergeConfigWithInput(config, data as Record<string, any>);
 
-      // Initialize cost tracker
+      const modelStr = resolveModel(data.provider, data.model);
       const costTracker = new CostTracker();
-      const budgetEnforcer = new BudgetEnforcer(
-        mergedConfig.budget,
-      );
+      const budgetEnforcer = new BudgetEnforcer(merged.budget);
+      const reportsDir = path.resolve(localPath, ".vulnhuntr-reports");
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-      // Initialize checkpoint system
+      // Checkpoint init
       const checkpoint = new AnalysisCheckpoint(
         path.join(localPath, ".vulnhuntr_checkpoint"),
       );
-      const resumeData = checkpoint.canResume()
-        ? checkpoint.resume(costTracker)
-        : null;
+      const resumeData = checkpoint.canResume() ? checkpoint.resume(costTracker) : null;
       if (resumeData) {
-        console.log(`   🔄 Resuming from checkpoint: ${resumeData.completedFiles.length} files already done`);
+        console.log(`   🔄 Resuming from checkpoint: ${resumeData.completedFiles.length} files done`);
       }
 
-      // Connect to MCP analysis servers (graceful degradation)
+      // MCP servers (graceful degradation)
       console.log(`   🔌 Connecting to MCP analysis servers...`);
       let mcpTools: Tool<any>[] = [];
       let mcpConfig: MCPConfiguration<MCPServerKey> | null = null;
@@ -267,444 +529,424 @@ export const vulnhuntrWorkflow = createWorkflowChain({
         mcpConfig = mcp.config;
       } catch (error) {
         console.warn(
-          `   ⚠️  MCP initialization failed: ${error instanceof Error ? error.message : String(error)}. Continuing without MCP tools.`
+          `   ⚠️  MCP init failed: ${error instanceof Error ? error.message : String(error)}. Continuing without MCP.`,
         );
       }
 
+      // ─── Initialize workflowState ───────────────────────────────────
+      setWorkflowState(() => ({
+        costTracker,
+        budgetEnforcer,
+        checkpoint,
+        mcpTools,
+        mcpConfig,
+        modelStr,
+        systemPrompt: "", // set after README summarization
+        maxIterations: merged.maxIterations ?? data.max_iterations ?? 7,
+        minConfidence: merged.confidenceThreshold ?? data.min_confidence ?? 5,
+        requestedVulnTypes: merged.vulnTypes ?? (data.vuln_types as string[] | undefined) ?? [],
+        localPath,
+        isCloned,
+        allFiles: [], // set after discovery
+        reportsDir,
+        timestamp,
+      } satisfies VulnHuntrState));
+
+      // Return ONLY what needs to flow through subsequent step data
       return {
         ...data,
-        ...mergedConfig,
         local_path: localPath,
         is_cloned: isCloned,
         github_owner: owner,
         github_repo: repo,
-        _mcp_tools: mcpTools,
-        _mcp_config: mcpConfig,
-        _cost_tracker: costTracker,
-        _budget_enforcer: budgetEnforcer,
-        _checkpoint: checkpoint,
         _resume_data: resumeData,
       };
     },
   })
 
-  // ===========================================================================
-  // Step 2: File Discovery
-  // Scan for Python files, filter to network-related files
-  // ===========================================================================
-  .andThen({
-    id: "discover-files",
-    execute: async ({ data }) => {
-      const analyzePath = (data as any).analyze_path as string | undefined;
-      const targetPath = analyzePath
-        ? path.resolve(data.local_path, analyzePath)
-        : data.local_path;
-
-      let allPyFiles: string[];
-      const stat = fs.statSync(targetPath);
-
-      if (stat.isFile()) {
-        allPyFiles = [targetPath];
-      } else {
-        allPyFiles = getPythonFiles(targetPath);
-      }
-
-      // Filter to network-related files unless analyzing a specific file
-      const networkFiles = stat.isFile()
-        ? allPyFiles
-        : allPyFiles.filter(isNetworkRelated);
-
-      // Initialize checkpoint with files list (now that we know them)
-      const checkpoint: AnalysisCheckpoint = data._checkpoint;
-      const resumeData = data._resume_data;
-      if (!resumeData) {
-        const relFiles = networkFiles.map((f) => path.relative(data.local_path, f));
-        checkpoint.start(
-          data.local_path,
-          relFiles,
-          resolveModel((data as any).provider ?? "anthropic", (data as any).model),
-          data._cost_tracker,
-        );
-      }
-
-      const relativeAll = allPyFiles.map((f) => path.relative(data.local_path, f));
-      const relativeNetwork = networkFiles.map((f) =>
-        path.relative(data.local_path, f)
-      );
-
-      console.log(
-        `   📂 Found ${allPyFiles.length} Python files, ${networkFiles.length} network-related`
-      );
-
-      return {
-        ...data,
-        all_files: relativeAll,
-        files_to_analyze: relativeNetwork,
-      };
-    },
-  })
-
-  // ===========================================================================
-  // Step 3: README Summarization
-  // Use LLM to summarize README for security context
-  // ===========================================================================
-  .andThen({
-    id: "summarize-readme",
-    execute: async ({ data }) => {
-      const readmeContent = getReadmeContent(data.local_path);
-
-      if (!readmeContent) {
-        console.log("   ℹ️  No README found, skipping summarization");
-        return { ...data, readme_summary: "No README available." };
-      }
-
-      // Create a temporary agent for README summarization (no system prompt)
-      const d = data as any;
-      const modelStr = resolveModel(d.provider ?? "anthropic", d.model);
-      const readmeAgent = new Agent({
-        name: "readme-summarizer",
-        instructions: "You summarize README files for security analysis.",
-        model: modelStr,
-      });
-
-      const prompt = buildReadmeSummaryPrompt(readmeContent);
-
-      try {
-        const result = await readmeAgent.generateText(prompt, {
-          maxOutputTokens: 2048,
-        });
-
-        const summary =
-          extractBetweenTags("summary", result.text) || result.text;
-        console.log("   📄 README summarized for security context");
-        return { ...data, readme_summary: summary };
-      } catch (error) {
-        console.warn("   ⚠️  README summarization failed, continuing without it");
-        return { ...data, readme_summary: "README summarization failed." };
+  .andTap({
+    id: "log-setup",
+    execute: ({ data }) => {
+      console.log(`   📁 Local path: ${data.local_path}`);
+      if (data.is_cloned) {
+        console.log(`   📦 Source: GitHub (${data.github_owner}/${data.github_repo})`);
       }
     },
   })
 
-  // ===========================================================================
-  // Step 4: Analyze Each File
-  // For each network-related file:
-  //   Phase 1: Initial analysis for all 7 vuln types
-  //   Phase 2: Iterative secondary analysis per vuln type found
-  // ===========================================================================
-  .andThen({
-    id: "analyze-files",
-    execute: async ({ data }) => {
-      const findings: Finding[] = [];
-      const d = data as any;
-      const modelStr = resolveModel(d.provider ?? "anthropic", d.model);
-      const systemPrompt = buildSystemPrompt(data.readme_summary);
+  // =====================================================================
+  // Step 2: Discovery + Summarization (PARALLEL via andAll)
+  // File discovery and README summarization are independent operations.
+  // Running them concurrently improves startup time.
+  // =====================================================================
+  .andAll({
+    id: "discover-and-summarize",
+    steps: [
+      // ── 2a: Discover network-related Python files ──────────────────
+      andThen({
+        id: "discover-files",
+        execute: async ({ data, workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          const analyzePath = data.analyze_path as string | undefined;
+          const targetPath = analyzePath
+            ? path.resolve(ws.localPath, analyzePath)
+            : ws.localPath;
 
-      // Retrieve new modules from state
-      const costTracker = data._cost_tracker as CostTracker;
-      const budgetEnforcer = data._budget_enforcer as BudgetEnforcer;
-      const checkpoint = data._checkpoint as AnalysisCheckpoint;
+          let allPyFiles: string[];
+          const stat = fs.statSync(targetPath);
+
+          if (stat.isFile()) {
+            allPyFiles = [targetPath];
+          } else {
+            allPyFiles = getPythonFiles(targetPath);
+          }
+
+          // Filter to network-related files unless analyzing a specific file
+          const networkFiles = stat.isFile()
+            ? allPyFiles
+            : allPyFiles.filter(isNetworkRelated);
+
+          return {
+            all_files: allPyFiles.map((f) => path.relative(ws.localPath, f)),
+            files_to_analyze: networkFiles.map((f) => path.relative(ws.localPath, f)),
+          };
+        },
+      }),
+
+      // ── 2b: Summarize README for security context ──────────────────
+      andThen({
+        id: "summarize-readme",
+        execute: async ({ workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          const readmeContent = getReadmeContent(ws.localPath);
+
+          if (!readmeContent) {
+            console.log("   ℹ️  No README found, skipping summarization");
+            return { readme_summary: "No README available." };
+          }
+
+          // Dynamic agent — model is a runtime input
+          const readmeAgent = new Agent({
+            name: "readme-summarizer",
+            instructions: "You summarize README files for security analysis.",
+            model: ws.modelStr,
+          });
+
+          try {
+            const result = await readmeAgent.generateText(
+              buildReadmeSummaryPrompt(readmeContent),
+              { maxOutputTokens: 2048 },
+            );
+            const summary = extractBetweenTags("summary", result.text) || result.text;
+            console.log("   📄 README summarized for security context");
+            return { readme_summary: summary };
+          } catch (error) {
+            console.warn(
+              `   ⚠️  README summarization failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return { readme_summary: "README summarization failed." };
+          }
+        },
+      }),
+    ],
+  })
+
+  // =====================================================================
+  // Step 3: Prepare Analysis
+  // Merge discovery results into workflowState so they survive the
+  // andForEach data-flow reset. Initialize checkpoint with file list.
+  // =====================================================================
+  .andThen({
+    id: "prepare-analysis",
+    execute: async ({ data, workflowState, setWorkflowState }) => {
+      const ws = workflowState as VulnHuntrState;
+
+      // Build system prompt with README context
+      const systemPrompt = buildSystemPrompt(data.readme_summary as string);
+
+      // Store in workflowState (persists through forEach boundary)
+      setWorkflowState((prev: any) => ({
+        ...prev,
+        allFiles: data.all_files as string[],
+        systemPrompt,
+      }));
+
+      // Initialize checkpoint with the file list
       const resumeData = data._resume_data as CheckpointData | null;
-      const completedFiles = new Set<string>(resumeData?.completedFiles ?? []);
-
-      // Create LLM session with cost tracking
-      const session = createAnalysisSession(systemPrompt, modelStr, costTracker);
-
-      const maxIterations = (d.maxIterations ?? d.max_iterations ?? 7) as number;
-      const minConfidence = (d.confidenceThreshold ?? d.min_confidence ?? 5) as number;
       const filesToAnalyze = data.files_to_analyze as string[];
 
-      console.log(`\n   🔍 Analyzing ${filesToAnalyze.length} files...\n`);
-
-      for (const [fileIdx, relativeFilePath] of filesToAnalyze.entries()) {
-        // Skip files completed in previous checkpoint run
-        if (completedFiles.has(relativeFilePath)) {
-          console.log(
-            `   [${fileIdx + 1}/${filesToAnalyze.length}] ${relativeFilePath} (resumed — skipped)`
-          );
-          continue;
-        }
-
-        // Budget check before starting a new file
-        if (!budgetEnforcer.check(costTracker.totalCost, costTracker.getFileCost(relativeFilePath))) {
-          console.warn(`   ⚠️  Budget limit reached. Stopping analysis.`);
-          break;
-        }
-
-        const fullPath = path.resolve(data.local_path, relativeFilePath);
-        let fileContent: string;
-        try {
-          fileContent = fs.readFileSync(fullPath, "utf-8");
-        } catch {
-          console.warn(`   ⚠️  Could not read ${relativeFilePath}, skipping`);
-          continue;
-        }
-
-        console.log(
-          `   [${fileIdx + 1}/${filesToAnalyze.length}] ${relativeFilePath}`
-        );
-
-        // Update checkpoint & session context
-        checkpoint.setCurrentFile(relativeFilePath);
-        session.setContext(relativeFilePath, "initial");
-        session.clearHistory();
-
-        // =====================================================================
-        // Phase 1: Initial Analysis
-        // =====================================================================
-        const initialPrompt = buildInitialPrompt(
-          relativeFilePath,
-          fileContent,
-          RESPONSE_FORMAT_SCHEMA
-        );
-
-        let initialReport: Response;
-        try {
-          const responseText = await session.chat(initialPrompt, 8192);
-          initialReport = parseLLMResponse(responseText);
-        } catch (error) {
-          console.warn(
-            `   ⚠️  Initial analysis failed for ${relativeFilePath}: ${error instanceof Error ? error.message : String(error)}`
-          );
-          continue;
-        }
-
-        const vulnTypes = initialReport.vulnerability_types;
-        if (vulnTypes.length === 0) {
-          console.log(`   ✓ No potential vulnerabilities found`);
-          checkpoint.markFileComplete(relativeFilePath);
-          continue;
-        }
-
-        console.log(
-          `   🔎 Potential vulns: ${vulnTypes.join(", ")}`
-        );
-
-        // =====================================================================
-        // Phase 2: Secondary Analysis (per vuln type)
-        // =====================================================================
-        for (const vulnType of vulnTypes) {
-          // Filter to requested vuln types if specified
-          const requestedTypes = (d.vulnTypes ?? d.vuln_types ?? []) as string[];
-          if (requestedTypes.length > 0 && !requestedTypes.includes(vulnType)) continue;
-
-          if (!VULN_SPECIFIC_BYPASSES_AND_PROMPTS[vulnType]) {
-            console.warn(`   ⚠️  Unknown vuln type: ${vulnType}`);
-            continue;
-          }
-
-          session.setContext(relativeFilePath, `secondary-${vulnType}`);
-
-          let currentReport: Response = initialReport;
-          let previousAnalysisJson = JSON.stringify(initialReport);
-          let resolvedContextCount = 0;
-          let lastContextCount = -1;
-          let prevContextNames: string[] = [];
-          const codeDefinitions: Array<{
-            name: string;
-            contextNameRequested: string;
-            filePath: string;
-            source: string;
-          }> = [];
-
-          for (let iteration = 0; iteration < maxIterations; iteration++) {
-            // Budget check per iteration
-            if (!budgetEnforcer.check(costTracker.totalCost)) {
-              console.warn(`   ⚠️  Budget limit reached during secondary analysis.`);
-              break;
-            }
-
-            // Cost-based iteration control (escalating cost detection)
-            const iterCost = costTracker.getFileCost(relativeFilePath);
-            if (!budgetEnforcer.shouldContinueIteration(relativeFilePath, iteration, iterCost, costTracker.totalCost)) {
-              break;
-            }
-
-            // Resolve context code requests (skip first iteration — use initial report)
-            if (iteration > 0 && currentReport.context_code.length > 0) {
-              const newContextCount = currentReport.context_code.length;
-              const currentContextNames = currentReport.context_code.map((c) => c.name).sort();
-
-              // Stop if no new context requested, same count as before,
-              // OR same symbols requested two iterations in a row (Python parity)
-              if (
-                newContextCount === lastContextCount ||
-                JSON.stringify(currentContextNames) === JSON.stringify(prevContextNames)
-              ) {
-                break;
-              }
-              lastContextCount = newContextCount;
-              prevContextNames = currentContextNames;
-
-              // Resolve each symbol
-              for (const ctx of currentReport.context_code) {
-                const result = extractSymbol(
-                  ctx.name,
-                  ctx.code_line,
-                  data.all_files,
-                  data.local_path
-                );
-                if (result) {
-                  codeDefinitions.push(result);
-                  resolvedContextCount++;
-                }
-              }
-            } else if (
-              iteration > 0 &&
-              currentReport.context_code.length === 0
-            ) {
-              // No more context requested, done
-              break;
-            }
-
-            // Build the secondary prompt
-            const secondaryPrompt = buildSecondaryPrompt(
-              relativeFilePath,
-              fileContent,
-              codeDefinitions,
-              vulnType,
-              previousAnalysisJson,
-              RESPONSE_FORMAT_SCHEMA
-            );
-
-            try {
-              const responseText = await session.chat(secondaryPrompt, 8192);
-              currentReport = parseLLMResponse(responseText);
-              previousAnalysisJson = JSON.stringify(currentReport);
-            } catch (error) {
-              console.warn(
-                `   ⚠️  Secondary analysis iteration ${iteration + 1} failed: ${error instanceof Error ? error.message : String(error)}`
-              );
-              break;
-            }
-          }
-
-          // Collect finding if confidence meets threshold
-          if (currentReport.confidence_score >= minConfidence) {
-            const finding = responseToFinding(
-              currentReport,
-              relativeFilePath,
-              vulnType,
-            );
-            findings.push(finding);
-            console.log(
-              `   🚨 ${vulnType} finding (confidence: ${currentReport.confidence_score}/10, severity: ${finding.severity})`
-            );
-          }
-        }
-
-        checkpoint.markFileComplete(relativeFilePath);
+      if (!resumeData) {
+        ws.checkpoint.start(ws.localPath, filesToAnalyze, ws.modelStr, ws.costTracker);
       }
 
-      // Log cost summary
-      const costSummary = costTracker.getSummary() as Record<string, any>;
-      const totalCostUsd = (costSummary.total_cost_usd ?? 0) as number;
-      console.log(`\n   💰 Cost: $${totalCostUsd.toFixed(4)} (${costSummary.api_calls} calls, ${(costSummary.total_input_tokens ?? 0) + (costSummary.total_output_tokens ?? 0)} tokens)`);
+      // Filter out already-completed files (checkpoint resume)
+      const completedFiles = new Set<string>(resumeData?.completedFiles ?? []);
+      const pendingFiles = filesToAnalyze.filter((f) => !completedFiles.has(f));
 
-      return {
-        ...data,
-        findings,
-        _total_cost_usd: totalCostUsd,
-      };
+      return { ...data, files_to_analyze: pendingFiles };
     },
   })
 
-  // ===========================================================================
-  // Step 5: Generate Reports & Build Result
-  // ===========================================================================
-  .andThen({
-    id: "generate-reports",
-    execute: async ({ data }) => {
-      const findings: Finding[] = data.findings;
-      const filesAnalyzed: string[] = data.files_to_analyze;
-      const costTracker = data._cost_tracker as CostTracker;
-      const checkpoint = data._checkpoint as AnalysisCheckpoint;
-      const totalCostUsd: number = (data._total_cost_usd as number) ?? 0;
+  .andTap({
+    id: "log-discovery",
+    execute: ({ data }) => {
+      const all = (data.all_files as string[]) ?? [];
+      const pending = (data.files_to_analyze as string[]) ?? [];
+      console.log(`   📂 Found ${all.length} Python files, ${pending.length} to analyze`);
+    },
+  })
 
-      // Build summary
+  // =====================================================================
+  // Step 4: Per-File Analysis (andForEach)
+  // Replaces the monolithic for-loop with VoltAgent's iteration primitive.
+  // Each iteration gets its own LLM session (history is per-file).
+  // concurrency: 1 ensures serial execution for budget/checkpoint safety.
+  // =====================================================================
+  .andForEach({
+    id: "analyze-files",
+    items: ({ data }) => (data.files_to_analyze as string[]) ?? [],
+    map: (_ctx: any, file: string, index: number) => ({ file, index }),
+    concurrency: 1,
+    step: andThen({
+      id: "analyze-single-file",
+      execute: async ({ data, workflowState }) => {
+        const ws = workflowState as VulnHuntrState;
+        const { file, index } = data as { file: string; index: number };
+
+        console.log(`   [${index + 1}] ${file}`);
+
+        const fileFindings = await analyzeFile(file, ws);
+        return { findings: fileFindings };
+      },
+    }),
+  })
+
+  // =====================================================================
+  // Step 5: Collect Findings
+  // Flatten per-file results from andForEach into a single list.
+  // After andForEach, data is an array of {findings: Finding[]}.
+  // =====================================================================
+  .andThen({
+    id: "collect-findings",
+    execute: async ({ data, workflowState }) => {
+      const ws = workflowState as VulnHuntrState;
+      const fileResults = data as Array<{ findings: Finding[] }>;
+
+      // Flatten all findings
+      const allFindings = fileResults.flatMap((r) => r.findings ?? []);
+
+      // Cost summary
+      const costSummary = ws.costTracker.getSummary() as Record<string, any>;
+      const totalCostUsd = (costSummary.total_cost_usd ?? 0) as number;
+
+      // Build summary statistics
       const byVulnType: Record<string, number> = {};
       const byConfidence: Record<string, number> = {};
-      for (const f of findings) {
+      for (const f of allFindings) {
         byVulnType[f.vuln_type] = (byVulnType[f.vuln_type] ?? 0) + 1;
-        const bucket =
-          f.confidence >= 8 ? "high" : f.confidence >= 5 ? "medium" : "low";
+        const bucket = f.confidence >= 8 ? "high" : f.confidence >= 5 ? "medium" : "low";
         byConfidence[bucket] = (byConfidence[bucket] ?? 0) + 1;
       }
 
-      const result: WorkflowResult = {
-        findings,
-        files_analyzed: filesAnalyzed,
+      return {
+        findings: allFindings,
+        files_analyzed: ws.allFiles,
         total_cost_usd: totalCostUsd,
+        is_cloned: ws.isCloned,
         summary: {
-          total_files: filesAnalyzed.length,
-          total_findings: findings.length,
+          total_files: ws.allFiles.length,
+          total_findings: allFindings.length,
           by_vuln_type: byVulnType,
           by_confidence: byConfidence,
         },
       };
+    },
+  })
 
-      // Generate report files
-      const reportsDir = path.resolve(data.local_path, ".vulnhuntr-reports");
-      fs.mkdirSync(reportsDir, { recursive: true });
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  .andTap({
+    id: "log-findings",
+    execute: ({ data }) => {
+      const d = data as any;
+      console.log(`\n   📊 Results: ${d.findings?.length ?? 0} findings`);
+      console.log(`   💰 Cost: $${(d.total_cost_usd ?? 0).toFixed(4)}`);
+    },
+  })
 
-      // JSON
-      const jsonPath = path.join(reportsDir, `report-${timestamp}.json`);
-      fs.writeFileSync(jsonPath, JSON.stringify(generateJsonReport(result), null, 2));
+  // =====================================================================
+  // Step 6: Generate Reports (PARALLEL via andAll)
+  // Write all 6 report formats concurrently.
+  // Each step reads findings from the data flow and paths from workflowState.
+  // =====================================================================
+  .andAll({
+    id: "generate-reports",
+    steps: [
+      andThen({
+        id: "write-json-report",
+        execute: async ({ data, workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          fs.mkdirSync(ws.reportsDir, { recursive: true });
+          const p = path.join(ws.reportsDir, `report-${ws.timestamp}.json`);
+          fs.writeFileSync(p, JSON.stringify(generateJsonReport(buildResultForReport(data)), null, 2));
+          return { json_report: p };
+        },
+      }),
 
-      // SARIF
-      const sarifPath = path.join(reportsDir, `report-${timestamp}.sarif`);
-      fs.writeFileSync(sarifPath, JSON.stringify(generateSarifReport(result), null, 2));
+      andThen({
+        id: "write-sarif-report",
+        execute: async ({ data, workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          fs.mkdirSync(ws.reportsDir, { recursive: true });
+          const p = path.join(ws.reportsDir, `report-${ws.timestamp}.sarif`);
+          fs.writeFileSync(p, JSON.stringify(generateSarifReport(buildResultForReport(data)), null, 2));
+          return { sarif_report: p };
+        },
+      }),
 
-      // Markdown
-      const mdPath = path.join(reportsDir, `report-${timestamp}.md`);
-      fs.writeFileSync(mdPath, generateMarkdownReport(result));
+      andThen({
+        id: "write-markdown-report",
+        execute: async ({ data, workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          fs.mkdirSync(ws.reportsDir, { recursive: true });
+          const p = path.join(ws.reportsDir, `report-${ws.timestamp}.md`);
+          fs.writeFileSync(p, generateMarkdownReport(buildResultForReport(data)));
+          return { markdown_report: p };
+        },
+      }),
 
-      // HTML
-      const htmlPath = path.join(reportsDir, `report-${timestamp}.html`);
-      fs.writeFileSync(htmlPath, generateHtmlReport(result));
+      andThen({
+        id: "write-html-report",
+        execute: async ({ data, workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          fs.mkdirSync(ws.reportsDir, { recursive: true });
+          const p = path.join(ws.reportsDir, `report-${ws.timestamp}.html`);
+          fs.writeFileSync(p, generateHtmlReport(buildResultForReport(data)));
+          return { html_report: p };
+        },
+      }),
 
-      // CSV
-      const csvPath = path.join(reportsDir, `report-${timestamp}.csv`);
-      fs.writeFileSync(csvPath, generateCsvReport(result));
+      andThen({
+        id: "write-csv-report",
+        execute: async ({ data, workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          fs.mkdirSync(ws.reportsDir, { recursive: true });
+          const p = path.join(ws.reportsDir, `report-${ws.timestamp}.csv`);
+          fs.writeFileSync(p, generateCsvReport(buildResultForReport(data)));
+          return { csv_report: p };
+        },
+      }),
 
-      // Cost report
-      const costPath = path.join(reportsDir, `cost-${timestamp}.json`);
-      fs.writeFileSync(costPath, JSON.stringify(costTracker.getSummary(), null, 2));
+      andThen({
+        id: "write-cost-report",
+        execute: async ({ workflowState }) => {
+          const ws = workflowState as VulnHuntrState;
+          fs.mkdirSync(ws.reportsDir, { recursive: true });
+          const p = path.join(ws.reportsDir, `cost-${ws.timestamp}.json`);
+          fs.writeFileSync(p, JSON.stringify(ws.costTracker.getSummary(), null, 2));
+          return { cost_report: p };
+        },
+      }),
+    ],
+  })
 
-      console.log(`\n   📊 Reports written to ${reportsDir}/`);
-      console.log(`      • ${path.basename(jsonPath)}`);
-      console.log(`      • ${path.basename(sarifPath)}`);
-      console.log(`      • ${path.basename(mdPath)}`);
-      console.log(`      • ${path.basename(htmlPath)}`);
-      console.log(`      • ${path.basename(csvPath)}`);
-      console.log(`      • ${path.basename(costPath)}`);
+  .andTap({
+    id: "log-reports",
+    execute: ({ data, workflowState }) => {
+      const ws = workflowState as VulnHuntrState;
+      const d = data as Record<string, any>;
+      console.log(`\n   📊 Reports written to ${ws.reportsDir}/`);
+      for (const key of Object.keys(d)) {
+        if (key.endsWith("_report") && typeof d[key] === "string") {
+          console.log(`      • ${path.basename(d[key] as string)}`);
+        }
+      }
+    },
+  })
 
-      // Finalize checkpoint (removes checkpoint file = analysis complete)
-      checkpoint.finalize();
-
-      // Clean up cloned repos if needed
-      if (data.is_cloned) {
+  // =====================================================================
+  // Step 7: Conditional Cleanup (andWhen)
+  // Only runs when the repo was cloned from GitHub.
+  // Copies reports to CWD before removing the temp clone.
+  // =====================================================================
+  .andWhen({
+    id: "cleanup-cloned-repo",
+    condition: ({ data }) => (data as any).is_cloned === true,
+    step: andThen({
+      id: "cleanup-clone",
+      execute: async ({ data, workflowState }) => {
+        const ws = workflowState as VulnHuntrState;
         try {
-          // Copy reports before cleanup
           const destDir = path.resolve(".", ".vulnhuntr-reports");
           fs.mkdirSync(destDir, { recursive: true });
-          for (const file of fs.readdirSync(reportsDir)) {
+          for (const file of fs.readdirSync(ws.reportsDir)) {
             fs.copyFileSync(
-              path.join(reportsDir, file),
-              path.join(destDir, file)
+              path.join(ws.reportsDir, file),
+              path.join(destDir, file),
             );
           }
           console.log(`   📋 Reports copied to ${destDir}/`);
-          fs.rmSync(data.local_path, { recursive: true, force: true });
+          fs.rmSync(ws.localPath, { recursive: true, force: true });
           console.log(`   🧹 Cleaned up cloned repo`);
         } catch (error) {
           console.warn(`   ⚠️  Cleanup failed: ${error}`);
         }
-      }
+        return data; // Pass through unchanged
+      },
+    }),
+  })
+
+  // =====================================================================
+  // Step 8: Finalize
+  // Finalize checkpoint, disconnect MCP, return WorkflowResult.
+  // Uses getStepData to safely retrieve findings in case andAll
+  // or andWhen changed the data shape.
+  // =====================================================================
+  .andThen({
+    id: "finalize",
+    execute: async ({ data, workflowState, getStepData }) => {
+      const ws = workflowState as VulnHuntrState;
+
+      // Finalize checkpoint (removes file = analysis complete)
+      ws.checkpoint.finalize();
 
       // Disconnect MCP servers
-      await disconnectMCP(data._mcp_config ?? null);
+      await disconnectMCP(ws.mcpConfig);
+
+      // Retrieve findings — prefer getStepData for safety, fallback to data
+      const collected = getStepData?.("collect-findings")?.output;
+      const d = (collected ?? data) as any;
+
+      const result: WorkflowResult = {
+        findings: d.findings ?? [],
+        files_analyzed: d.files_analyzed ?? ws.allFiles,
+        total_cost_usd: d.total_cost_usd ?? ws.costTracker.totalCost,
+        summary: d.summary ?? {
+          total_files: ws.allFiles.length,
+          total_findings: (d.findings ?? []).length,
+          by_vuln_type: {},
+          by_confidence: {},
+        },
+      };
 
       return result;
+    },
+  })
+
+  .andTap({
+    id: "log-summary",
+    execute: ({ data }) => {
+      const d = data as any;
+      console.log(`\n   ═══════════════════════════════════════`);
+      console.log(`   VulnHuntr Analysis Summary`);
+      console.log(`   ═══════════════════════════════════════`);
+      console.log(`   Files analyzed:  ${d.files_analyzed?.length ?? 0}`);
+      console.log(`   Findings:        ${d.findings?.length ?? 0}`);
+      console.log(`   Total cost:      $${(d.total_cost_usd ?? 0).toFixed(4)}`);
+      if (d.summary?.by_vuln_type) {
+        const types = Object.entries(d.summary.by_vuln_type)
+          .map(([k, v]) => `${k}(${v})`)
+          .join(", ");
+        if (types) console.log(`   By type:         ${types}`);
+      }
+      console.log(`   ═══════════════════════════════════════\n`);
     },
   });

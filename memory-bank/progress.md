@@ -4,51 +4,54 @@
 
 ### 1. Agent Orchestration System (2026-02-06)
 - Created `.agents/AGENT.md` main orchestrator for VS Code Copilot
-- Created 5 sub-agents in `.agents/sub-agents/` (voltagent-dev, voltagent-docs, typescript, git, infrastructure)
+- Created 5 sub-agents in `.agents/sub-agents/`
 - Created `.vscode/settings.json` with agent integration
-- Created documentation in `.agents/README.md`
 
 ### 2. Core VulnHuntr Workflow (2026-02-06)
-- Ported all 7 vuln-specific prompt templates (character-for-character identical to Python)
-- Created Zod schemas (VulnType, ResponseSchema, ContextCodeSchema, FindingSchema)
-- Created repo tools (file discovery, network filtering, README reading)
-- Created symbol finder (regex-based, 3 strategies)
-- Created GitHub tools (clone, URL parsing, cleanup)
-- Created reporters (SARIF, JSON, Markdown, HTML)
-- Created MCP integration (filesystem, ripgrep, tree-sitter, process, codeql)
-- Created 5-step workflow chain (setup-repo → discover-files → summarize-readme → analyze-files → generate-reports)
-- Fixed 4 TypeScript compilation errors (maxTokens → maxOutputTokens, state.stepId → state.active)
+- Ported all 7 vuln-specific prompt templates
+- Created Zod schemas, repo tools, symbol finder, GitHub tools, reporters, MCP integration
+- Created initial 5-step workflow chain
 - Build passing (0 errors)
 
 ### 3. Template Cleanup (2026-02-07)
-- Deleted `src/tools/weather.ts`
-- Removed `expenseApprovalWorkflow` from `src/workflows/index.ts` (replaced 135-line file)
-- Removed `weatherTool` and `expenseApprovalWorkflow` imports/registrations from `src/index.ts` and `src/tools/index.ts`
-- Build verified clean
+- Removed weather.ts, expense approval workflow, template references
 
 ### 4. Gap Analysis (2026-02-07)
-- Comprehensive comparison: read all 23 Python source files + all 9 TypeScript files
-- Produced 225-line detailed gap report
-- Identified 14 missing features, 9 incomplete implementations, and behavioral differences
-- Verified 100% prompt parity (all 7 templates + system/initial/guidelines/approach)
+- Comprehensive comparison of 23 Python + 9 TypeScript files
+- 14 missing features identified
 
 ### 5. Full Feature Implementation (2026-02-07)
-- **Cost Tracker** (`src/cost-tracker/index.ts`) — CostTracker, BudgetEnforcer, 14-model pricing table, estimation functions
-- **Config System** (`src/config/index.ts`) — .vulnhuntr.yaml loading, recursive dir search, merge with CLI input
-- **Checkpoint/Resume** (`src/checkpoint/index.ts`) — AnalysisCheckpoint, SIGINT handler, atomic writes, save/resume/finalize
-- **LLM Layer** (`src/llm/index.ts`) — LLMSession, Claude prefill trick, JSON fixing, conversation history, provider detection
-- **GitHub Issues** (`src/integrations/github-issues.ts`) — Issue creation, duplicate detection, severity filtering
-- **Webhook Notifications** (`src/integrations/webhook.ts`) — HMAC-SHA256 signing, Slack/Discord/Teams/JSON formats
-- **Enriched Schemas** (`src/schemas/index.ts`) — 18+ field Finding, FindingSeverity 5-level enum, responseToFinding(), CWE_NAMES
-- **Enriched Reporters** (`src/reporters/index.ts`) — SARIF (fingerprints, codeFlows, taxonomies), JSON (severity), Markdown (collapsible), HTML (interactive), CSV (new)
-- **Network Patterns** (`src/tools/repo.ts`) — Expanded from ~50 to ~120 patterns
-- **Workflow Wiring** (`src/workflows/vulnhuntr.ts`) — All new modules integrated, improved termination logic
-- **README** — Updated with vulnhuntr features, usage examples, project structure
+- 6 new modules: LLM layer, cost tracker, config, checkpoint, GitHub issues, webhook
+- Enriched schemas (18+ fields), enriched reporters (SARIF/JSON/MD/HTML/CSV)
+- Network patterns expanded (~50→~120), workflow fully wired
+- Build: 0 errors, 190.19 KB
 
-### 6. Build Verification (2026-02-07)
-- `npx tsc --noEmit` — 0 errors
-- `npm run build` — 190.19 kB output, 66ms build time
-- All 14 implementation tasks completed
+### 6. VoltAgent Best Practices Refactoring (2026-02-07)
+Complete rewrite of `src/workflows/vulnhuntr.ts` from sequential to idiomatic VoltAgent:
+
+**Research:** Read all 14 bundled workflow docs, 3 skill files, GitHub examples. Identified 12 anti-patterns.
+
+**Anti-patterns fixed:**
+- Sequential-only `andThen` → `andAll` + `andForEach` + `andWhen` + `andTap`
+- Monolithic 300-line step → extracted `analyzeFile()` function
+- No shared state → `VulnHuntrState` interface via `workflowState`/`setWorkflowState`
+- `(data as any)` casts → clean data-flow returns + state-based service access
+- No logging separation → 5 `andTap` side-effect steps
+- No parallelism → 2x `andAll` (discover+readme, 6 reports)
+- No iteration primitive → `andForEach` with `items`/`map`/`concurrency: 1`
+- No conditional steps → `andWhen` for clone cleanup
+- Minimal hooks → comprehensive lifecycle hooks (5 hooks)
+- No retry policy → `retryConfig` + `retries: 2` on clone step
+- No `getStepData` → used in finalize for safe data recovery
+
+**New architecture:**
+```
+setup-repo → andTap(log) → andAll(discover + readme) → prepare-analysis
+→ andTap(log) → andForEach(analyze-files) → collect-findings → andTap(log)
+→ andAll(6 reports) → andTap(log) → andWhen(cleanup) → finalize → andTap(summary)
+```
+
+**Build:** 0 errors, 194.30 KB, 102ms. File: 952 lines.
 
 ## Pending Milestones
 - Runtime test with actual Python repository
@@ -56,6 +59,7 @@
 - CLI entry point
 - Production MCP server deployment
 - Real webhook/GitHub Issues integration testing
+- Verify workflowState behavior in forEach inner steps at runtime
 
 ## Update History
 - [2026-02-06] Agent orchestration system created
@@ -63,3 +67,4 @@
 - [2026-02-07] Template cleanup completed
 - [2026-02-07] Gap analysis: 14 missing features identified
 - [2026-02-07] All 14 missing features implemented, full build passing
+- [2026-02-07] VoltAgent best practices refactoring: 12 anti-patterns fixed, full Chain API adopted
