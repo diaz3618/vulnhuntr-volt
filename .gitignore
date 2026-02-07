@@ -152,9 +152,9 @@ dist
 !packages/create-voltagent-app/templates/base/.env
 
 # npx skills add VoltAgent/skills
-.cursor
-.claude
-.agents
+#.cursor
+#.claude
+#.agents
 
 # misc
 /repos
