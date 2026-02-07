@@ -34,17 +34,42 @@ setup-repo → andTap → andAll(discover-files + summarize-readme) → prepare-
 ```
 
 ## Known Issues
-- MCP servers require npx at runtime (graceful degradation if unavailable)
-- Symbol finder is regex-based (no Jedi AST)
-- No unit tests yet for modules
-- No CLI entry point (uses VoltAgent server API)
-- `workflowState` typing relies on `as VulnHuntrState` casts (VoltAgent doesn't support generics for state yet)
-- `andWhen` condition function: `workflowState` availability unconfirmed — using `data.is_cloned` as fallback
-- `getStepData` availability inside `andForEach` inner steps unconfirmed — not relied upon there
 
+- VoltAgent docs misleadingly say andAll 'merges results into one object' — it actually returns a tuple
+- VoltAgent chain.run() does NOT validate input against Zod schema at runtime — schema is for type inference only
 ## Next Steps
-- Runtime test with an actual Python repository
-- Write unit tests for new modules (cost-tracker, config, checkpoint, llm, reporters)
-- Verify workflowState/getStepData behavior in forEach inner steps at runtime
-- Consider adding a CLI runner for direct invocation
-- Consider `andGuardrail` for input validation and `andSleep` for rate limiting
+
+- Push to main branch
+- Consider adding runtime Zod validation in setup-repo step if input validation is important
+## Current Session Notes
+
+- [2:18:01 AM] [Unknown User] Decision Made: vitest v4 constructor mock pattern
+- [2:17:53 AM] [Unknown User] Decision Made: andAll returns tuple, not merged object
+- [2:17:45 AM] [Unknown User] Fixed workflow bugs and created comprehensive test suite: Major accomplishments in this session:
+
+1. **Fixed andAll data flow bugs in vulnhuntr.ts** (critical production bug):
+   - VoltAgent's `andAll` returns a tuple (array), not a merged flat object
+   - `prepare-analysis` step was accessing `data.files_to_analyze` and `data.readme_summary` directly from the andAll tuple — now properly destructures `[discoverResult, readmeResult]`
+   - Moved `_resume_data` to workflowState so it survives the andAll boundary
+   - Fixed `log-reports` to iterate over the report tuple from the second andAll
+   - Fixed `andWhen(cleanup)` to check `workflowState.isCloned` instead of lost `data.is_cloned`
+   - Added `resumeData` field to VulnHuntrState interface
+
+2. **Fixed constructor mock patterns in tests**:
+   - vitest v4 calls `new implementation()` on mockImplementation — arrow functions can't be used with `new`
+   - Changed all constructor mocks (CostTracker, BudgetEnforcer, AnalysisCheckpoint) to use regular functions
+   - Added partial mock of `@voltagent/core` to mock `Agent` class while keeping `createWorkflowChain` real
+
+3. **Created comprehensive E2E test suite** (56 tests, all passing):
+   - Tests cover: chain construction, registration, hooks, execution, findings, GitHub clone, budget enforcement, checkpoint resume, multi-iteration analysis, error resilience, input validation, WorkflowState persistence, result schema, execution metadata, provider configuration, single file analysis, vuln type filtering, edge cases
+   - Test configuration: vitest with regex alias for .js→.ts resolution
+
+4. **Build verified**: 0 errors, 194.54 KB, 83ms
+
+
+## Ongoing Tasks
+
+- All 56 E2E tests passing
+- Build clean (0 errors, 194.54 KB)
+- Workflow bugs fixed (andAll tuple handling, workflowState persistence)
+- Ready to push to main

@@ -95,3 +95,31 @@
 - **Decision**: Use `getStepData("collect-findings")?.output` as primary data source in finalize, with `data` as fallback.
 - **Alternatives**: (1) Store WorkflowResult in workflowState, (2) Rely on data flow preservation through andAll, (3) Re-compute from workflowState
 - **Consequences**: Robust against data-flow changes from andAll/andWhen; clean fallback; `getStepData` API availability in all step types assumed from docs.
+
+## andAll returns tuple, not merged object
+- **Date:** 2026-02-07 2:17:53 AM
+- **Author:** Unknown User
+- **Context:** VoltAgent's andAll documentation claims it merges results into one object, but empirically it returns a positional tuple (array). This was discovered through test failures where data.property was undefined after andAll.
+- **Decision:** Always destructure andAll results as a tuple. Use workflowState for data that must survive andAll boundaries (since andAll replaces the data flow with its output).
+- **Alternatives Considered:** 
+  - Trust VoltAgent docs and assume merged object (incorrect)
+  - Store all shared state in workflowState only (over-engineering)
+  - Use getStepData to retrieve previous step outputs (more complex)
+- **Consequences:** 
+  - Workflow now correctly handles andAll data flow
+  - Pattern documented for future andAll usage
+  - VoltAgent docs are known to be misleading on this point
+
+## vitest v4 constructor mock pattern
+- **Date:** 2026-02-07 2:18:01 AM
+- **Author:** Unknown User
+- **Context:** vitest v4 calls new on the mockImplementation function. Arrow functions cannot be used with new. For @voltagent/core, needed Agent mocked but createWorkflowChain real.
+- **Decision:** Use vi.fn(function(this: any) { this.prop = ...; return this; }) for constructor mocks. Use vi.mock('@voltagent/core', async (importOriginal) => {...partial mock...}) to mock Agent while keeping chain API real.
+- **Alternatives Considered:** 
+  - Use vi.fn().mockImplementation(arrow) for constructor mocks (fails in vitest v4)
+  - Use class-based mocks (more verbose)
+  - Mock entire @voltagent/core (breaks chain API)
+- **Consequences:** 
+  - All constructor mocks work correctly with new
+  - Agent class mocked while createWorkflowChain stays real
+  - Pattern documented for future test development

@@ -62,6 +62,29 @@ setup-repo → andTap(log) → andAll(discover + readme) → prepare-analysis
 - Verify workflowState behavior in forEach inner steps at runtime
 
 ## Update History
+
+- [2026-02-07 2:18:01 AM] [Unknown User] - Decision Made: vitest v4 constructor mock pattern
+- [2026-02-07 2:17:53 AM] [Unknown User] - Decision Made: andAll returns tuple, not merged object
+- [2026-02-07 2:17:45 AM] [Unknown User] - Fixed workflow bugs and created comprehensive test suite: Major accomplishments in this session:
+
+1. **Fixed andAll data flow bugs in vulnhuntr.ts** (critical production bug):
+   - VoltAgent's `andAll` returns a tuple (array), not a merged flat object
+   - `prepare-analysis` step was accessing `data.files_to_analyze` and `data.readme_summary` directly from the andAll tuple — now properly destructures `[discoverResult, readmeResult]`
+   - Moved `_resume_data` to workflowState so it survives the andAll boundary
+   - Fixed `log-reports` to iterate over the report tuple from the second andAll
+   - Fixed `andWhen(cleanup)` to check `workflowState.isCloned` instead of lost `data.is_cloned`
+   - Added `resumeData` field to VulnHuntrState interface
+
+2. **Fixed constructor mock patterns in tests**:
+   - vitest v4 calls `new implementation()` on mockImplementation — arrow functions can't be used with `new`
+   - Changed all constructor mocks (CostTracker, BudgetEnforcer, AnalysisCheckpoint) to use regular functions
+   - Added partial mock of `@voltagent/core` to mock `Agent` class while keeping `createWorkflowChain` real
+
+3. **Created comprehensive E2E test suite** (56 tests, all passing):
+   - Tests cover: chain construction, registration, hooks, execution, findings, GitHub clone, budget enforcement, checkpoint resume, multi-iteration analysis, error resilience, input validation, WorkflowState persistence, result schema, execution metadata, provider configuration, single file analysis, vuln type filtering, edge cases
+   - Test configuration: vitest with regex alias for .js→.ts resolution
+
+4. **Build verified**: 0 errors, 194.54 KB, 83ms
 - [2026-02-06] Agent orchestration system created
 - [2026-02-06] Core VulnHuntr workflow implemented and building
 - [2026-02-07] Template cleanup completed

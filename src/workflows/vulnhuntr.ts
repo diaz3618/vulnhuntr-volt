@@ -5,41 +5,41 @@
  * LLM-powered Python vulnerability analysis.
  *
  * Architecture:
- *   ┌──────────────┐
+ *   ┌───────────────┐
  *   │  setup-repo   │  Clone/validate, init services → workflowState
- *   └──────┬────────┘
- *          ▼
+ *   └────────┬──────┘
+ *            ▼
  *   ┌──────────────────────────┐
  *   │  discover-and-summarize  │  andAll: parallel file scan + README AI
  *   │  ├─ discover-files       │
  *   │  └─ summarize-readme     │
- *   └──────────┬───────────────┘
- *              ▼
+ *   └────────┬─────────────────┘
+ *            ▼
  *   ┌──────────────────┐
- *   │  prepare-analysis │  Store analysis context in workflowState
+ *   │ prepare-analysis │  Store analysis context in workflowState
  *   └────────┬─────────┘
  *            ▼
  *   ┌───────────────────┐
- *   │   analyze-files    │  andForEach: per-file Phase 1→2 analysis
- *   │   └─ analyze-file  │
+ *   │   analyze-files   │  andForEach: per-file Phase 1→2 analysis
+ *   │   └─ analyze-file │
  *   └────────┬──────────┘
  *            ▼
- *   ┌─────────────────┐
+ *   ┌──────────────────┐
  *   │ collect-findings │  Flatten results, build summary
- *   └────────┬────────┘
+ *   └────────┬─────────┘
  *            ▼
  *   ┌──────────────────────┐
- *   │   generate-reports    │  andAll: parallel report writing
- *   │   ├─ write-json       │
- *   │   ├─ write-sarif      │
- *   │   ├─ write-markdown   │
- *   │   ├─ write-html       │
- *   │   ├─ write-csv        │
- *   │   └─ write-cost       │
+ *   │   generate-reports   │  andAll: parallel report writing
+ *   │   ├─ write-json      │
+ *   │   ├─ write-sarif     │
+ *   │   ├─ write-markdown  │
+ *   │   ├─ write-html      │
+ *   │   ├─ write-csv       │
+ *   │   └─ write-cost      │
  *   └──────────┬───────────┘
  *              ▼
  *   ┌───────────────────────────┐
- *   │  cleanup-and-finalize     │  andWhen(cloned → cleanup), disconnect MCP
+ *   │    cleanup-and-finalize   │  andWhen(cloned → cleanup), disconnect MCP
  *   └───────────────────────────┘
  */
 
@@ -52,7 +52,6 @@ import {
   andWhen,
   andTap,
 } from "@voltagent/core";
-import { z } from "zod";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -134,6 +133,9 @@ interface VulnHuntrState {
   // Reporting
   reportsDir: string;
   timestamp: string;
+
+  // Checkpoint resume data (survives andAll boundary)
+  resumeData: CheckpointData | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -430,20 +432,20 @@ export const vulnhuntrWorkflow = createWorkflowChain({
     },
 
     onStepStart: async (state) => {
-      const id = (state as any).stepId ?? (state as any).active ?? "";
-      if (id) console.log(`\n   → [${id}]`);
+      const idx = state.active;
+      if (idx != null) console.log(`\n   → step ${idx}`);
     },
 
     onStepEnd: async (state) => {
-      const id = (state as any).stepId ?? (state as any).active ?? "";
-      if (id) console.log(`   ← [${id}] done`);
+      const idx = state.active;
+      if (idx != null) console.log(`   ← step ${idx} done`);
     },
 
     onError: async (info) => {
       console.error(`\n❌ Workflow error: ${info.error}`);
       // Best-effort: save checkpoint on error
       try {
-        const ws = (info as any).state?.workflowState as VulnHuntrState | undefined;
+        const ws = info.state?.workflowState as VulnHuntrState | undefined;
         if (ws?.checkpoint) ws.checkpoint.save();
       } catch { /* best-effort */ }
     },
@@ -550,6 +552,7 @@ export const vulnhuntrWorkflow = createWorkflowChain({
         allFiles: [], // set after discovery
         reportsDir,
         timestamp,
+        resumeData,
       } satisfies VulnHuntrState));
 
       // Return ONLY what needs to flow through subsequent step data
@@ -559,7 +562,6 @@ export const vulnhuntrWorkflow = createWorkflowChain({
         is_cloned: isCloned,
         github_owner: owner,
         github_repo: repo,
-        _resume_data: resumeData,
       };
     },
   })
@@ -661,19 +663,25 @@ export const vulnhuntrWorkflow = createWorkflowChain({
     execute: async ({ data, workflowState, setWorkflowState }) => {
       const ws = workflowState as VulnHuntrState;
 
+      // andAll returns a tuple: [discoverResult, readmeResult]
+      const [discoverResult, readmeResult] = data as [
+        { all_files: string[]; files_to_analyze: string[] },
+        { readme_summary: string },
+      ];
+
       // Build system prompt with README context
-      const systemPrompt = buildSystemPrompt(data.readme_summary as string);
+      const systemPrompt = buildSystemPrompt(readmeResult.readme_summary);
 
       // Store in workflowState (persists through forEach boundary)
       setWorkflowState((prev: any) => ({
         ...prev,
-        allFiles: data.all_files as string[],
+        allFiles: discoverResult.all_files,
         systemPrompt,
       }));
 
       // Initialize checkpoint with the file list
-      const resumeData = data._resume_data as CheckpointData | null;
-      const filesToAnalyze = data.files_to_analyze as string[];
+      const resumeData = ws.resumeData as CheckpointData | null;
+      const filesToAnalyze = discoverResult.files_to_analyze;
 
       if (!resumeData) {
         ws.checkpoint.start(ws.localPath, filesToAnalyze, ws.modelStr, ws.costTracker);
@@ -683,7 +691,11 @@ export const vulnhuntrWorkflow = createWorkflowChain({
       const completedFiles = new Set<string>(resumeData?.completedFiles ?? []);
       const pendingFiles = filesToAnalyze.filter((f) => !completedFiles.has(f));
 
-      return { ...data, files_to_analyze: pendingFiles };
+      return {
+        all_files: discoverResult.all_files,
+        files_to_analyze: pendingFiles,
+        readme_summary: readmeResult.readme_summary,
+      };
     },
   })
 
@@ -852,11 +864,15 @@ export const vulnhuntrWorkflow = createWorkflowChain({
     id: "log-reports",
     execute: ({ data, workflowState }) => {
       const ws = workflowState as VulnHuntrState;
-      const d = data as Record<string, any>;
+      // andAll returns a tuple of report results
+      const reportResults = (Array.isArray(data) ? data : [data]) as Record<string, any>[];
       console.log(`\n   📊 Reports written to ${ws.reportsDir}/`);
-      for (const key of Object.keys(d)) {
-        if (key.endsWith("_report") && typeof d[key] === "string") {
-          console.log(`      • ${path.basename(d[key] as string)}`);
+      for (const r of reportResults) {
+        if (!r) continue;
+        for (const key of Object.keys(r)) {
+          if (key.endsWith("_report") && typeof r[key] === "string") {
+            console.log(`      • ${path.basename(r[key] as string)}`);
+          }
         }
       }
     },
@@ -869,7 +885,7 @@ export const vulnhuntrWorkflow = createWorkflowChain({
   // =====================================================================
   .andWhen({
     id: "cleanup-cloned-repo",
-    condition: ({ data }) => (data as any).is_cloned === true,
+    condition: ({ workflowState }) => (workflowState as VulnHuntrState).isCloned === true,
     step: andThen({
       id: "cleanup-clone",
       execute: async ({ data, workflowState }) => {
