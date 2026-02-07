@@ -5,60 +5,66 @@
  * severity badges, collapsible details, interactive HTML, etc.
  */
 
+import { createHash } from "node:crypto";
 import type { Finding, WorkflowResult } from "../schemas/index.js";
 import { CWE_MAP, CWE_NAMES, SEVERITY_SCORES } from "../schemas/index.js";
-import { createHash } from "node:crypto";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+	return str
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;");
 }
 
 function escapeCsv(str: string): string {
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
+	if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+		return `"${str.replace(/"/g, '""')}"`;
+	}
+	return str;
 }
 
 /** SHA-256 fingerprint for a finding (for SARIF partialFingerprints). */
 function fingerprintFinding(f: Finding): string {
-  const data = `${f.file_path}:${f.vuln_type}:${f.analysis.slice(0, 200)}`;
-  return createHash("sha256").update(data).digest("hex").slice(0, 16);
+	const data = `${f.file_path}:${f.vuln_type}:${f.analysis.slice(0, 200)}`;
+	return createHash("sha256").update(data).digest("hex").slice(0, 16);
 }
 
 function severityEmoji(sev: string): string {
-  switch (sev) {
-    case "CRITICAL": return "🔴";
-    case "HIGH": return "🟠";
-    case "MEDIUM": return "🟡";
-    case "LOW": return "🟢";
-    case "INFO": return "🔵";
-    default: return "⚪";
-  }
+	switch (sev) {
+		case "CRITICAL":
+			return "🔴";
+		case "HIGH":
+			return "🟠";
+		case "MEDIUM":
+			return "🟡";
+		case "LOW":
+			return "🟢";
+		case "INFO":
+			return "🔵";
+		default:
+			return "⚪";
+	}
 }
 
 function sarifLevel(f: Finding): string {
-  if (f.severity === "CRITICAL" || f.severity === "HIGH") return "error";
-  if (f.severity === "MEDIUM") return "warning";
-  return "note";
+	if (f.severity === "CRITICAL" || f.severity === "HIGH") return "error";
+	if (f.severity === "MEDIUM") return "warning";
+	return "note";
 }
 
 /** Sort findings by severity (most severe first), then confidence desc. */
 function sortFindings(findings: Finding[]): Finding[] {
-  return [...findings].sort((a, b) => {
-    const sa = SEVERITY_SCORES[a.severity] ?? 0;
-    const sb = SEVERITY_SCORES[b.severity] ?? 0;
-    if (sb !== sa) return sb - sa;
-    return b.confidence - a.confidence;
-  });
+	return [...findings].sort((a, b) => {
+		const sa = SEVERITY_SCORES[a.severity] ?? 0;
+		const sb = SEVERITY_SCORES[b.severity] ?? 0;
+		if (sb !== sa) return sb - sa;
+		return b.confidence - a.confidence;
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -66,109 +72,121 @@ function sortFindings(findings: Finding[]): Finding[] {
 // ---------------------------------------------------------------------------
 
 export function generateSarifReport(result: WorkflowResult): object {
-  const sorted = sortFindings(result.findings);
+	const sorted = sortFindings(result.findings);
 
-  return {
-    $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-    version: "2.1.0",
-    runs: [
-      {
-        tool: {
-          driver: {
-            name: "vulnhuntr-volt",
-            version: "1.0.0",
-            semanticVersion: "1.0.0",
-            informationUri: "https://github.com/protectai/vulnhuntr",
-            rules: Object.entries(CWE_MAP).map(([id, cwe]) => ({
-              id: `vulnhuntr/${id}`,
-              name: id,
-              shortDescription: { text: `${id} vulnerability detection` },
-              fullDescription: { text: CWE_NAMES[cwe] ?? `${id} vulnerability` },
-              helpUri: `https://cwe.mitre.org/data/definitions/${cwe.replace("CWE-", "")}.html`,
-              properties: {
-                tags: ["security", cwe],
-                "security-severity": String(SEVERITY_SCORES.HIGH),
-              },
-            })),
-          },
-        },
-        invocations: [
-          {
-            executionSuccessful: true,
-            startTimeUtc: new Date().toISOString(),
-          },
-        ],
-        taxonomies: [
-          {
-            name: "CWE",
-            version: "4.13",
-            informationUri: "https://cwe.mitre.org/data/published/cwe_v4.13.pdf",
-            taxa: Object.entries(CWE_NAMES).map(([cwe, name]) => ({
-              id: cwe,
-              name,
-              shortDescription: { text: name },
-              helpUri: `https://cwe.mitre.org/data/definitions/${cwe.replace("CWE-", "")}.html`,
-            })),
-          },
-        ],
-        results: sorted.map((finding) => {
-          const fp = fingerprintFinding(finding);
-          const region = finding.start_line > 0
-            ? { startLine: finding.start_line, endLine: finding.end_line || finding.start_line }
-            : undefined;
+	return {
+		$schema:
+			"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+		version: "2.1.0",
+		runs: [
+			{
+				tool: {
+					driver: {
+						name: "vulnhuntr-volt",
+						version: "1.0.0",
+						semanticVersion: "1.0.0",
+						informationUri: "https://github.com/protectai/vulnhuntr",
+						rules: Object.entries(CWE_MAP).map(([id, cwe]) => ({
+							id: `vulnhuntr/${id}`,
+							name: id,
+							shortDescription: { text: `${id} vulnerability detection` },
+							fullDescription: {
+								text: CWE_NAMES[cwe] ?? `${id} vulnerability`,
+							},
+							helpUri: `https://cwe.mitre.org/data/definitions/${cwe.replace("CWE-", "")}.html`,
+							properties: {
+								tags: ["security", cwe],
+								"security-severity": String(SEVERITY_SCORES.HIGH),
+							},
+						})),
+					},
+				},
+				invocations: [
+					{
+						executionSuccessful: true,
+						startTimeUtc: new Date().toISOString(),
+					},
+				],
+				taxonomies: [
+					{
+						name: "CWE",
+						version: "4.13",
+						informationUri:
+							"https://cwe.mitre.org/data/published/cwe_v4.13.pdf",
+						taxa: Object.entries(CWE_NAMES).map(([cwe, name]) => ({
+							id: cwe,
+							name,
+							shortDescription: { text: name },
+							helpUri: `https://cwe.mitre.org/data/definitions/${cwe.replace("CWE-", "")}.html`,
+						})),
+					},
+				],
+				results: sorted.map((finding) => {
+					const fp = fingerprintFinding(finding);
+					const region =
+						finding.start_line > 0
+							? {
+									startLine: finding.start_line,
+									endLine: finding.end_line || finding.start_line,
+								}
+							: undefined;
 
-          const resultObj: Record<string, unknown> = {
-            ruleId: finding.rule_id || finding.vuln_type,
-            level: sarifLevel(finding),
-            message: { text: finding.analysis },
-            partialFingerprints: {
-              primaryLocationLineHash: fp,
-            },
-            locations: [
-              {
-                physicalLocation: {
-                  artifactLocation: { uri: finding.file_path },
-                  ...(region ? { region } : {}),
-                },
-              },
-            ],
-            properties: {
-              confidence: finding.confidence,
-              severity: finding.severity,
-              cwe: finding.cwe,
-              "security-severity": String(SEVERITY_SCORES[finding.severity] ?? 5),
-              ...(finding.poc ? { poc: finding.poc } : {}),
-              ...(finding.discovered_at ? { discovered_at: finding.discovered_at } : {}),
-            },
-          };
+					const resultObj: Record<string, unknown> = {
+						ruleId: finding.rule_id || finding.vuln_type,
+						level: sarifLevel(finding),
+						message: { text: finding.analysis },
+						partialFingerprints: {
+							primaryLocationLineHash: fp,
+						},
+						locations: [
+							{
+								physicalLocation: {
+									artifactLocation: { uri: finding.file_path },
+									...(region ? { region } : {}),
+								},
+							},
+						],
+						properties: {
+							confidence: finding.confidence,
+							severity: finding.severity,
+							cwe: finding.cwe,
+							"security-severity": String(
+								SEVERITY_SCORES[finding.severity] ?? 5,
+							),
+							...(finding.poc ? { poc: finding.poc } : {}),
+							...(finding.discovered_at
+								? { discovered_at: finding.discovered_at }
+								: {}),
+						},
+					};
 
-          // codeFlows for context
-          if (finding.context_code) {
-            resultObj.codeFlows = [
-              {
-                threadFlows: [
-                  {
-                    locations: [
-                      {
-                        location: {
-                          physicalLocation: {
-                            artifactLocation: { uri: finding.file_path },
-                          },
-                          message: { text: finding.context_code.slice(0, 500) },
-                        },
-                      },
-                    ],
-                  },
-                ],
-              },
-            ];
-          }
+					// codeFlows for context
+					if (finding.context_code) {
+						resultObj.codeFlows = [
+							{
+								threadFlows: [
+									{
+										locations: [
+											{
+												location: {
+													physicalLocation: {
+														artifactLocation: { uri: finding.file_path },
+													},
+													message: { text: finding.context_code.slice(0, 500) },
+												},
+											},
+										],
+									},
+								],
+							},
+						];
+					}
 
-          return resultObj;
-        }),
-      },
-    ],
-  };
+					return resultObj;
+				}),
+			},
+		],
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -176,45 +194,45 @@ export function generateSarifReport(result: WorkflowResult): object {
 // ---------------------------------------------------------------------------
 
 export function generateJsonReport(result: WorkflowResult): object {
-  const sorted = sortFindings(result.findings);
+	const sorted = sortFindings(result.findings);
 
-  // Build severity breakdown
-  const bySeverity: Record<string, number> = {};
-  for (const f of sorted) {
-    bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
-  }
+	// Build severity breakdown
+	const bySeverity: Record<string, number> = {};
+	for (const f of sorted) {
+		bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
+	}
 
-  return {
-    metadata: {
-      tool: "vulnhuntr-volt",
-      version: "1.0.0",
-      timestamp: new Date().toISOString(),
-      files_analyzed: result.files_analyzed.length,
-      total_findings: result.findings.length,
-    },
-    summary: {
-      ...result.summary,
-      by_severity: bySeverity,
-    },
-    findings: sorted.map((f) => ({
-      rule_id: f.rule_id,
-      title: f.title,
-      file_path: f.file_path,
-      start_line: f.start_line,
-      end_line: f.end_line,
-      vuln_type: f.vuln_type,
-      severity: f.severity,
-      confidence: f.confidence,
-      cwe: f.cwe,
-      cwe_name: f.cwe_name,
-      cwe_url: `https://cwe.mitre.org/data/definitions/${f.cwe.replace("CWE-", "")}.html`,
-      analysis: f.analysis,
-      scratchpad: f.scratchpad,
-      poc: f.poc ?? null,
-      context_code: f.context_code || undefined,
-      discovered_at: f.discovered_at,
-    })),
-  };
+	return {
+		metadata: {
+			tool: "vulnhuntr-volt",
+			version: "1.0.0",
+			timestamp: new Date().toISOString(),
+			files_analyzed: result.files_analyzed.length,
+			total_findings: result.findings.length,
+		},
+		summary: {
+			...result.summary,
+			by_severity: bySeverity,
+		},
+		findings: sorted.map((f) => ({
+			rule_id: f.rule_id,
+			title: f.title,
+			file_path: f.file_path,
+			start_line: f.start_line,
+			end_line: f.end_line,
+			vuln_type: f.vuln_type,
+			severity: f.severity,
+			confidence: f.confidence,
+			cwe: f.cwe,
+			cwe_name: f.cwe_name,
+			cwe_url: `https://cwe.mitre.org/data/definitions/${f.cwe.replace("CWE-", "")}.html`,
+			analysis: f.analysis,
+			scratchpad: f.scratchpad,
+			poc: f.poc ?? null,
+			context_code: f.context_code || undefined,
+			discovered_at: f.discovered_at,
+		})),
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -222,113 +240,116 @@ export function generateJsonReport(result: WorkflowResult): object {
 // ---------------------------------------------------------------------------
 
 export function generateMarkdownReport(result: WorkflowResult): string {
-  const sorted = sortFindings(result.findings);
-  const lines: string[] = [
-    "# Vulnerability Analysis Report",
-    "",
-    `**Generated**: ${new Date().toISOString()}`,
-    `**Tool**: vulnhuntr-volt v1.0.0`,
-    "",
-    "## Summary",
-    "",
-    "| Metric | Value |",
-    "|--------|-------|",
-    `| Files Analyzed | ${result.summary.total_files} |`,
-    `| Total Findings | ${result.summary.total_findings} |`,
-    ...(result.total_cost_usd
-      ? [`| Estimated Cost | $${result.total_cost_usd.toFixed(4)} |`]
-      : []),
-    "",
-  ];
+	const sorted = sortFindings(result.findings);
+	const lines: string[] = [
+		"# Vulnerability Analysis Report",
+		"",
+		`**Generated**: ${new Date().toISOString()}`,
+		"**Tool**: vulnhuntr-volt v1.0.0",
+		"",
+		"## Summary",
+		"",
+		"| Metric | Value |",
+		"|--------|-------|",
+		`| Files Analyzed | ${result.summary.total_files} |`,
+		`| Total Findings | ${result.summary.total_findings} |`,
+		...(result.total_cost_usd
+			? [`| Estimated Cost | $${result.total_cost_usd.toFixed(4)} |`]
+			: []),
+		"",
+	];
 
-  // Severity breakdown table
-  const bySeverity: Record<string, number> = {};
-  for (const f of sorted) {
-    bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
-  }
-  if (Object.keys(bySeverity).length > 0) {
-    lines.push("### Findings by Severity", "");
-    lines.push("| Severity | Count |");
-    lines.push("|----------|-------|");
-    for (const sev of ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]) {
-      if (bySeverity[sev]) {
-        lines.push(`| ${severityEmoji(sev)} ${sev} | ${bySeverity[sev]} |`);
-      }
-    }
-    lines.push("");
-  }
+	// Severity breakdown table
+	const bySeverity: Record<string, number> = {};
+	for (const f of sorted) {
+		bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
+	}
+	if (Object.keys(bySeverity).length > 0) {
+		lines.push("### Findings by Severity", "");
+		lines.push("| Severity | Count |");
+		lines.push("|----------|-------|");
+		for (const sev of ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]) {
+			if (bySeverity[sev]) {
+				lines.push(`| ${severityEmoji(sev)} ${sev} | ${bySeverity[sev]} |`);
+			}
+		}
+		lines.push("");
+	}
 
-  // By vulnerability type
-  if (Object.keys(result.summary.by_vuln_type).length > 0) {
-    lines.push("### Findings by Vulnerability Type", "");
-    lines.push("| Type | Count | CWE |");
-    lines.push("|------|-------|-----|");
-    for (const [type, count] of Object.entries(result.summary.by_vuln_type)) {
-      lines.push(`| ${type} | ${count} | ${CWE_MAP[type] ?? "N/A"} |`);
-    }
-    lines.push("");
-  }
+	// By vulnerability type
+	if (Object.keys(result.summary.by_vuln_type).length > 0) {
+		lines.push("### Findings by Vulnerability Type", "");
+		lines.push("| Type | Count | CWE |");
+		lines.push("|------|-------|-----|");
+		for (const [type, count] of Object.entries(result.summary.by_vuln_type)) {
+			lines.push(`| ${type} | ${count} | ${CWE_MAP[type] ?? "N/A"} |`);
+		}
+		lines.push("");
+	}
 
-  // Individual findings with collapsible details
-  if (sorted.length > 0) {
-    lines.push("## Findings", "");
-    for (const [i, f] of sorted.entries()) {
-      const sev = `${severityEmoji(f.severity)} ${f.severity}`;
-      const loc = f.start_line > 0 ? ` (L${f.start_line}–L${f.end_line || f.start_line})` : "";
+	// Individual findings with collapsible details
+	if (sorted.length > 0) {
+		lines.push("## Findings", "");
+		for (const [i, f] of sorted.entries()) {
+			const sev = `${severityEmoji(f.severity)} ${f.severity}`;
+			const loc =
+				f.start_line > 0
+					? ` (L${f.start_line}–L${f.end_line || f.start_line})`
+					: "";
 
-      lines.push(
-        `### ${i + 1}. ${f.vuln_type} in \`${f.file_path}\`${loc}`,
-        "",
-        `- **Severity**: ${sev}`,
-        `- **Confidence**: ${f.confidence}/10`,
-        `- **CWE**: [${f.cwe} — ${f.cwe_name || ""}](https://cwe.mitre.org/data/definitions/${f.cwe.replace("CWE-", "")}.html)`,
-        ...(f.discovered_at ? [`- **Discovered**: ${f.discovered_at}`] : []),
-        "",
-        "**Analysis**:",
-        "",
-        f.analysis,
-        "",
-      );
+			lines.push(
+				`### ${i + 1}. ${f.vuln_type} in \`${f.file_path}\`${loc}`,
+				"",
+				`- **Severity**: ${sev}`,
+				`- **Confidence**: ${f.confidence}/10`,
+				`- **CWE**: [${f.cwe} — ${f.cwe_name || ""}](https://cwe.mitre.org/data/definitions/${f.cwe.replace("CWE-", "")}.html)`,
+				...(f.discovered_at ? [`- **Discovered**: ${f.discovered_at}`] : []),
+				"",
+				"**Analysis**:",
+				"",
+				f.analysis,
+				"",
+			);
 
-      if (f.poc) {
-        lines.push("**Proof of Concept**:", "", "```", f.poc, "```", "");
-      }
+			if (f.poc) {
+				lines.push("**Proof of Concept**:", "", "```", f.poc, "```", "");
+			}
 
-      // Collapsible scratchpad
-      if (f.scratchpad) {
-        lines.push(
-          "<details>",
-          "<summary>LLM Reasoning (scratchpad)</summary>",
-          "",
-          f.scratchpad,
-          "",
-          "</details>",
-          "",
-        );
-      }
+			// Collapsible scratchpad
+			if (f.scratchpad) {
+				lines.push(
+					"<details>",
+					"<summary>LLM Reasoning (scratchpad)</summary>",
+					"",
+					f.scratchpad,
+					"",
+					"</details>",
+					"",
+				);
+			}
 
-      // Collapsible context code
-      if (f.context_code) {
-        lines.push(
-          "<details>",
-          "<summary>Context Code</summary>",
-          "",
-          "```python",
-          f.context_code,
-          "```",
-          "",
-          "</details>",
-          "",
-        );
-      }
+			// Collapsible context code
+			if (f.context_code) {
+				lines.push(
+					"<details>",
+					"<summary>Context Code</summary>",
+					"",
+					"```python",
+					f.context_code,
+					"```",
+					"",
+					"</details>",
+					"",
+				);
+			}
 
-      lines.push("---", "");
-    }
-  } else {
-    lines.push("## No vulnerabilities found", "");
-  }
+			lines.push("---", "");
+		}
+	} else {
+		lines.push("## No vulnerabilities found", "");
+	}
 
-  return lines.join("\n");
+	return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -336,21 +357,24 @@ export function generateMarkdownReport(result: WorkflowResult): string {
 // ---------------------------------------------------------------------------
 
 export function generateHtmlReport(result: WorkflowResult): string {
-  const sorted = sortFindings(result.findings);
+	const sorted = sortFindings(result.findings);
 
-  // Severity breakdown for summary
-  const bySeverity: Record<string, number> = {};
-  for (const f of sorted) {
-    bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
-  }
-  const severityRows = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
-    .filter((s) => bySeverity[s])
-    .map((s) => `<tr><td><span class="badge ${s.toLowerCase()}">${s}</span></td><td>${bySeverity[s]}</td></tr>`)
-    .join("\n");
+	// Severity breakdown for summary
+	const bySeverity: Record<string, number> = {};
+	for (const f of sorted) {
+		bySeverity[f.severity] = (bySeverity[f.severity] ?? 0) + 1;
+	}
+	const severityRows = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+		.filter((s) => bySeverity[s])
+		.map(
+			(s) =>
+				`<tr><td><span class="badge ${s.toLowerCase()}">${s}</span></td><td>${bySeverity[s]}</td></tr>`,
+		)
+		.join("\n");
 
-  const findings = sorted
-    .map(
-      (f, i) => `
+	const findings = sorted
+		.map(
+			(f, i) => `
     <div class="finding ${f.severity.toLowerCase()}">
       <div class="finding-header" onclick="this.parentElement.classList.toggle('collapsed')">
         <span class="finding-num">#${i + 1}</span>
@@ -370,10 +394,10 @@ export function generateHtmlReport(result: WorkflowResult): string {
         ${f.context_code ? `<details class="context"><summary>Context Code</summary><pre><code>${escapeHtml(f.context_code)}</code></pre></details>` : ""}
       </div>
     </div>`,
-    )
-    .join("\n");
+		)
+		.join("\n");
 
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -462,30 +486,40 @@ export function generateHtmlReport(result: WorkflowResult): string {
 // ---------------------------------------------------------------------------
 
 export function generateCsvReport(result: WorkflowResult): string {
-  const headers = [
-    "rule_id", "title", "file_path", "start_line", "end_line",
-    "vuln_type", "severity", "confidence", "cwe", "cwe_name",
-    "analysis", "poc", "discovered_at",
-  ];
-  const sorted = sortFindings(result.findings);
+	const headers = [
+		"rule_id",
+		"title",
+		"file_path",
+		"start_line",
+		"end_line",
+		"vuln_type",
+		"severity",
+		"confidence",
+		"cwe",
+		"cwe_name",
+		"analysis",
+		"poc",
+		"discovered_at",
+	];
+	const sorted = sortFindings(result.findings);
 
-  const rows = sorted.map((f) =>
-    [
-      escapeCsv(f.rule_id),
-      escapeCsv(f.title),
-      escapeCsv(f.file_path),
-      String(f.start_line),
-      String(f.end_line),
-      escapeCsv(f.vuln_type),
-      escapeCsv(f.severity),
-      String(f.confidence),
-      escapeCsv(f.cwe),
-      escapeCsv(f.cwe_name),
-      escapeCsv(f.analysis),
-      escapeCsv(f.poc ?? ""),
-      escapeCsv(f.discovered_at),
-    ].join(","),
-  );
+	const rows = sorted.map((f) =>
+		[
+			escapeCsv(f.rule_id),
+			escapeCsv(f.title),
+			escapeCsv(f.file_path),
+			String(f.start_line),
+			String(f.end_line),
+			escapeCsv(f.vuln_type),
+			escapeCsv(f.severity),
+			String(f.confidence),
+			escapeCsv(f.cwe),
+			escapeCsv(f.cwe_name),
+			escapeCsv(f.analysis),
+			escapeCsv(f.poc ?? ""),
+			escapeCsv(f.discovered_at),
+		].join(","),
+	);
 
-  return [headers.join(","), ...rows].join("\n");
+	return [headers.join(","), ...rows].join("\n");
 }

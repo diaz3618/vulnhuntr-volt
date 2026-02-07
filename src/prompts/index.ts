@@ -234,77 +234,80 @@ When analyzing, consider:
 // ---------------------------------------------------------------------------
 
 export interface VulnSpecificData {
-  prompt: string;
-  bypasses: string[];
+	prompt: string;
+	bypasses: string[];
 }
 
-export const VULN_SPECIFIC_BYPASSES_AND_PROMPTS: Record<string, VulnSpecificData> = {
-  LFI: {
-    prompt: LFI_TEMPLATE,
-    bypasses: [
-      "../../../../etc/passwd",
-      "/proc/self/environ",
-      "data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7Pz4=",
-      "file:///etc/passwd",
-      "C:\\win.ini/?../../../../../../../etc/passwd",
-    ],
-  },
-  RCE: {
-    prompt: RCE_TEMPLATE,
-    bypasses: [
-      "__import__('os').system('id')",
-      "eval('__import__(\\'os\\').popen(\\'id\\').read()')",
-      "exec('import subprocess;print(subprocess.check_output([\\'id\\']))')",
-      "globals()['__builtins__'].__import__('os').system('id')",
-      "getattr(__import__('os'), 'system')('id')",
-      "$(touch${IFS}/tmp/mcinerney)",
-      "import pickle; pickle.loads(b'cos\\nsystem\\n(S\"id\"\\ntR.')",
-    ],
-  },
-  SSRF: {
-    prompt: SSRF_TEMPLATE,
-    bypasses: [
-      "http://0.0.0.0:22",
-      "file:///etc/passwd",
-      "dict://127.0.0.1:11211/",
-      "ftp://anonymous:anonymous@127.0.0.1:21",
-      "gopher://127.0.0.1:9000/_GET /",
-    ],
-  },
-  AFO: {
-    prompt: AFO_TEMPLATE,
-    bypasses: [
-      "../../../etc/passwd%00.jpg",
-      "shell.py;.jpg",
-      ".htaccess",
-      "/proc/self/cmdline",
-      "../../config.py/.",
-    ],
-  },
-  SQLI: {
-    prompt: SQLI_TEMPLATE,
-    bypasses: [
-      "' UNION SELECT username, password FROM users--",
-      "1 OR 1=1--",
-      "admin'--",
-      "1; DROP TABLE users--",
-      "' OR '1'='1",
-    ],
-  },
-  XSS: {
-    prompt: XSS_TEMPLATE,
-    bypasses: [
-      "{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}",
-      "${7*7}",
-      '{% for x in ().__class__.__base__.__subclasses__() %}{% if "warning" in x.__name__ %}{{x()._module.__builtins__[\'__import__\'](\'os\').popen("id").read()}}{%endif%}{% endfor %}',
-      "<script>alert(document.domain)</script>",
-      "javascript:alert(1)",
-    ],
-  },
-  IDOR: {
-    prompt: IDOR_TEMPLATE,
-    bypasses: [],
-  },
+export const VULN_SPECIFIC_BYPASSES_AND_PROMPTS: Record<
+	string,
+	VulnSpecificData
+> = {
+	LFI: {
+		prompt: LFI_TEMPLATE,
+		bypasses: [
+			"../../../../etc/passwd",
+			"/proc/self/environ",
+			"data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7Pz4=",
+			"file:///etc/passwd",
+			"C:\\win.ini/?../../../../../../../etc/passwd",
+		],
+	},
+	RCE: {
+		prompt: RCE_TEMPLATE,
+		bypasses: [
+			"__import__('os').system('id')",
+			"eval('__import__(\\'os\\').popen(\\'id\\').read()')",
+			"exec('import subprocess;print(subprocess.check_output([\\'id\\']))')",
+			"globals()['__builtins__'].__import__('os').system('id')",
+			"getattr(__import__('os'), 'system')('id')",
+			"$(touch${IFS}/tmp/mcinerney)",
+			"import pickle; pickle.loads(b'cos\\nsystem\\n(S\"id\"\\ntR.')",
+		],
+	},
+	SSRF: {
+		prompt: SSRF_TEMPLATE,
+		bypasses: [
+			"http://0.0.0.0:22",
+			"file:///etc/passwd",
+			"dict://127.0.0.1:11211/",
+			"ftp://anonymous:anonymous@127.0.0.1:21",
+			"gopher://127.0.0.1:9000/_GET /",
+		],
+	},
+	AFO: {
+		prompt: AFO_TEMPLATE,
+		bypasses: [
+			"../../../etc/passwd%00.jpg",
+			"shell.py;.jpg",
+			".htaccess",
+			"/proc/self/cmdline",
+			"../../config.py/.",
+		],
+	},
+	SQLI: {
+		prompt: SQLI_TEMPLATE,
+		bypasses: [
+			"' UNION SELECT username, password FROM users--",
+			"1 OR 1=1--",
+			"admin'--",
+			"1; DROP TABLE users--",
+			"' OR '1'='1",
+		],
+	},
+	XSS: {
+		prompt: XSS_TEMPLATE,
+		bypasses: [
+			"{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}",
+			"${7*7}",
+			"{% for x in ().__class__.__base__.__subclasses__() %}{% if \"warning\" in x.__name__ %}{{x()._module.__builtins__['__import__']('os').popen(\"id\").read()}}{%endif%}{% endfor %}",
+			"<script>alert(document.domain)</script>",
+			"javascript:alert(1)",
+		],
+	},
+	IDOR: {
+		prompt: IDOR_TEMPLATE,
+		bypasses: [],
+	},
 };
 
 // ---------------------------------------------------------------------------
@@ -421,64 +424,64 @@ Output your findings in JSON format, conforming to the schema in <response_forma
 // ---------------------------------------------------------------------------
 
 export function xmlTag(tag: string, content: string): string {
-  return `<${tag}>${content}</${tag}>`;
+	return `<${tag}>${content}</${tag}>`;
 }
 
 export function buildFileCode(filePath: string, source: string): string {
-  return xmlTag(
-    "file_code",
-    `<file_path>${filePath}</file_path>\n<file_source>${source}</file_source>`
-  );
+	return xmlTag(
+		"file_code",
+		`<file_path>${filePath}</file_path>\n<file_source>${source}</file_source>`,
+	);
 }
 
 export function buildCodeDefinitions(
-  definitions: Array<{
-    name: string;
-    contextNameRequested: string;
-    filePath: string;
-    source: string;
-  }>
+	definitions: Array<{
+		name: string;
+		contextNameRequested: string;
+		filePath: string;
+		source: string;
+	}>,
 ): string {
-  if (definitions.length === 0) return "<context_code></context_code>";
-  const defs = definitions
-    .map(
-      (d) =>
-        `<code>\n<name>${d.name}</name>\n<context_name_requested>${d.contextNameRequested}</context_name_requested>\n<file_path>${d.filePath}</file_path>\n<source>${d.source}</source>\n</code>`
-    )
-    .join("\n");
-  return xmlTag("context_code", defs);
+	if (definitions.length === 0) return "<context_code></context_code>";
+	const defs = definitions
+		.map(
+			(d) =>
+				`<code>\n<name>${d.name}</name>\n<context_name_requested>${d.contextNameRequested}</context_name_requested>\n<file_path>${d.filePath}</file_path>\n<source>${d.source}</source>\n</code>`,
+		)
+		.join("\n");
+	return xmlTag("context_code", defs);
 }
 
 export function buildExampleBypasses(bypasses: string[]): string {
-  return xmlTag("example_bypasses", bypasses.join("\n"));
+	return xmlTag("example_bypasses", bypasses.join("\n"));
 }
 
 export function buildInstructions(instructions: string): string {
-  return xmlTag("instructions", instructions);
+	return xmlTag("instructions", instructions);
 }
 
 export function buildAnalysisApproach(approach: string): string {
-  return xmlTag("analysis_approach", approach);
+	return xmlTag("analysis_approach", approach);
 }
 
 export function buildPreviousAnalysis(analysis: string): string {
-  return xmlTag("previous_analysis", analysis);
+	return xmlTag("previous_analysis", analysis);
 }
 
 export function buildGuidelines(guidelines: string): string {
-  return xmlTag("guidelines", guidelines);
+	return xmlTag("guidelines", guidelines);
 }
 
 export function buildResponseFormat(schema: string): string {
-  return xmlTag("response_format", schema);
+	return xmlTag("response_format", schema);
 }
 
 export function buildReadmeContent(content: string): string {
-  return xmlTag("readme_content", content);
+	return xmlTag("readme_content", content);
 }
 
 export function buildReadmeSummary(summary: string): string {
-  return xmlTag("readme_summary", summary);
+	return xmlTag("readme_summary", summary);
 }
 
 // ---------------------------------------------------------------------------
@@ -486,58 +489,58 @@ export function buildReadmeSummary(summary: string): string {
 // ---------------------------------------------------------------------------
 
 export function buildInitialPrompt(
-  filePath: string,
-  fileContent: string,
-  responseFormatSchema: string
+	filePath: string,
+	fileContent: string,
+	responseFormatSchema: string,
 ): string {
-  return [
-    buildFileCode(filePath, fileContent),
-    buildInstructions(INITIAL_ANALYSIS_PROMPT_TEMPLATE),
-    buildAnalysisApproach(ANALYSIS_APPROACH_TEMPLATE),
-    buildPreviousAnalysis(""),
-    buildGuidelines(GUIDELINES_TEMPLATE),
-    buildResponseFormat(responseFormatSchema),
-  ].join("\n\n");
+	return [
+		buildFileCode(filePath, fileContent),
+		buildInstructions(INITIAL_ANALYSIS_PROMPT_TEMPLATE),
+		buildAnalysisApproach(ANALYSIS_APPROACH_TEMPLATE),
+		buildPreviousAnalysis(""),
+		buildGuidelines(GUIDELINES_TEMPLATE),
+		buildResponseFormat(responseFormatSchema),
+	].join("\n\n");
 }
 
 export function buildSecondaryPrompt(
-  filePath: string,
-  fileContent: string,
-  codeDefinitions: Array<{
-    name: string;
-    contextNameRequested: string;
-    filePath: string;
-    source: string;
-  }>,
-  vulnType: string,
-  previousAnalysisJson: string,
-  responseFormatSchema: string
+	filePath: string,
+	fileContent: string,
+	codeDefinitions: Array<{
+		name: string;
+		contextNameRequested: string;
+		filePath: string;
+		source: string;
+	}>,
+	vulnType: string,
+	previousAnalysisJson: string,
+	responseFormatSchema: string,
 ): string {
-  const vulnData = VULN_SPECIFIC_BYPASSES_AND_PROMPTS[vulnType];
-  if (!vulnData) throw new Error(`Unknown vulnerability type: ${vulnType}`);
+	const vulnData = VULN_SPECIFIC_BYPASSES_AND_PROMPTS[vulnType];
+	if (!vulnData) throw new Error(`Unknown vulnerability type: ${vulnType}`);
 
-  return [
-    buildFileCode(filePath, fileContent),
-    buildCodeDefinitions(codeDefinitions),
-    buildExampleBypasses(vulnData.bypasses),
-    buildInstructions(vulnData.prompt),
-    buildAnalysisApproach(ANALYSIS_APPROACH_TEMPLATE),
-    buildPreviousAnalysis(previousAnalysisJson),
-    buildGuidelines(GUIDELINES_TEMPLATE),
-    buildResponseFormat(responseFormatSchema),
-  ].join("\n\n");
+	return [
+		buildFileCode(filePath, fileContent),
+		buildCodeDefinitions(codeDefinitions),
+		buildExampleBypasses(vulnData.bypasses),
+		buildInstructions(vulnData.prompt),
+		buildAnalysisApproach(ANALYSIS_APPROACH_TEMPLATE),
+		buildPreviousAnalysis(previousAnalysisJson),
+		buildGuidelines(GUIDELINES_TEMPLATE),
+		buildResponseFormat(responseFormatSchema),
+	].join("\n\n");
 }
 
 export function buildReadmeSummaryPrompt(readmeContent: string): string {
-  return [
-    buildReadmeContent(readmeContent),
-    buildInstructions(README_SUMMARY_PROMPT_TEMPLATE),
-  ].join("\n\n");
+	return [
+		buildReadmeContent(readmeContent),
+		buildInstructions(README_SUMMARY_PROMPT_TEMPLATE),
+	].join("\n\n");
 }
 
 export function buildSystemPrompt(readmeSummary: string): string {
-  return [
-    buildInstructions(SYS_PROMPT_TEMPLATE),
-    buildReadmeSummary(readmeSummary),
-  ].join("\n\n");
+	return [
+		buildInstructions(SYS_PROMPT_TEMPLATE),
+		buildReadmeSummary(readmeSummary),
+	].join("\n\n");
 }
