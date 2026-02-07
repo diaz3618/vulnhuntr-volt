@@ -162,7 +162,7 @@ Load: typescript-dev.md
 | **voltagent** | VoltAgent framework documentation | VoltAgent development, API questions | High |
 | **lsp** | TypeScript language server features | Type checking, completions, diagnostics | High |
 
-### memory-bank-mcp (WORD OF GOD)
+### memory-bank-mcp (ALWAYS USE IT)
 
 **This is not optional. This is not a suggestion. This is an absolute requirement.**
 
