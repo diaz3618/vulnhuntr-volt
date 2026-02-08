@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit",
     "volt": "volt",
     "test": "vitest run",
+    "test:e2e": "vitest run tests/",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },

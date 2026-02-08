@@ -1,14 +1,14 @@
 /**
- * VulnHuntr VoltAgent Workflow — End-to-End Test Suite
+ * Workflow - e2e Test Suite
  * =====================================================
  *
- * Comprehensive tests covering:
+ * Tests cover:
  *   1.  Workflow chain construction & registration
  *   2.  Chain configuration (hooks, schemas, retry)
  *   3.  Individual hook behaviour
  *   4.  fixJsonResponse mock-contract
- *   5.  Full workflow execution — local repository
- *   6.  Full workflow execution — with findings
+ *   5.  Full workflow execution - local repository
+ *   6.  Full workflow execution - with findings
  *   7.  GitHub clone path
  *   8.  andWhen conditional cleanup
  *   9.  Budget enforcement
@@ -33,7 +33,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // 1. Mock external modules BEFORE importing the workflow
 // ---------------------------------------------------------------------------
 
-// --- @voltagent/core: partial mock — mock Agent while keeping chain API real ---
+// --- @voltagent/core: partial mock - mock Agent while keeping chain API real ---
 vi.mock("@voltagent/core", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -84,7 +84,10 @@ vi.mock("../src/tools/github.ts", () => ({
 
 // --- repo tools ---
 vi.mock("../src/tools/repo.ts", () => ({
-  getPythonFiles: vi.fn(() => ["/tmp/test-repo/app.py", "/tmp/test-repo/views.py"]),
+  getPythonFiles: vi.fn(() => [
+    "/tmp/test-repo/app.py",
+    "/tmp/test-repo/views.py",
+  ]),
   isNetworkRelated: vi.fn(() => true),
   getReadmeContent: vi.fn(() => "# Test Repo\nA test Python app"),
 }));
@@ -107,9 +110,13 @@ vi.mock("../src/mcp/index.ts", () => ({
 
 // --- reporters ---
 vi.mock("../src/reporters/index.ts", () => ({
-  generateJsonReport: vi.fn((r: any) => ({ report: "json", findings: r.findings })),
+  generateJsonReport: vi.fn((r: any) => ({
+    report: "json",
+    findings: r.findings,
+  })),
   generateSarifReport: vi.fn((r: any) => ({
-    $schema: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+    $schema:
+      "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
     version: "2.1.0",
     runs: [],
   })),
@@ -226,7 +233,10 @@ const mockChat = vi.fn(async () =>
 
 vi.mock("../src/llm/index.ts", () => ({
   fixJsonResponse: vi.fn((text: string) => {
-    let cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    let cleaned = text
+      .replace(/```json\s*/g, "")
+      .replace(/```\s*/g, "")
+      .trim();
     const objMatch = cleaned.match(/\{[\s\S]*\}/);
     if (objMatch) cleaned = objMatch[0];
     return cleaned;
@@ -254,7 +264,9 @@ vi.mock("../src/llm/index.ts", () => ({
 
 // --- prompts ---
 vi.mock("../src/prompts/index.ts", () => ({
-  buildSystemPrompt: vi.fn((summary: string) => `System prompt with: ${summary}`),
+  buildSystemPrompt: vi.fn(
+    (summary: string) => `System prompt with: ${summary}`,
+  ),
   buildInitialPrompt: vi.fn(
     (fp: string, content: string, schema: string) =>
       `Analyze ${fp} for vulnerabilities. Schema: ${schema}`,
@@ -461,7 +473,9 @@ describe("VulnHuntr Workflow E2E", () => {
         workflowState: {},
       });
 
-      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("step 2 done"));
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.stringContaining("step 2 done"),
+      );
     });
 
     it("onError hook should save checkpoint on error", async () => {
@@ -543,9 +557,7 @@ describe("VulnHuntr Workflow E2E", () => {
         steps: [],
       });
 
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("cancelled"),
-      );
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("cancelled"));
     });
 
     it("onFinish hook should handle suspended status", async () => {
@@ -560,9 +572,7 @@ describe("VulnHuntr Workflow E2E", () => {
         steps: [],
       });
 
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining("suspended"),
-      );
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("suspended"));
     });
   });
 
@@ -586,10 +596,10 @@ describe("VulnHuntr Workflow E2E", () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // Section 5: Workflow Execution — Local Repository
+  // Section 5: Workflow Execution - Local Repository
   // ═════════════════════════════════════════════════════════════════════
 
-  describe("Workflow Execution — Local Repository", () => {
+  describe("Workflow Execution - Local Repository", () => {
     const localInput = {
       repo_path: "/tmp/test-repo",
       provider: "anthropic" as const,
@@ -633,10 +643,10 @@ describe("VulnHuntr Workflow E2E", () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // Section 6: Workflow Execution — With Findings
+  // Section 6: Workflow Execution - With Findings
   // ═════════════════════════════════════════════════════════════════════
 
-  describe("Workflow Execution — With Findings", () => {
+  describe("Workflow Execution - With Findings", () => {
     it("should collect findings when LLM returns high confidence", async () => {
       mockChat.mockImplementation(async () =>
         JSON.stringify({
@@ -690,14 +700,13 @@ describe("VulnHuntr Workflow E2E", () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // Section 7: Workflow Execution — GitHub Clone Path
+  // Section 7: Workflow Execution - GitHub Clone Path
   // ═════════════════════════════════════════════════════════════════════
 
-  describe("Workflow Execution — GitHub Clone", () => {
+  describe("Workflow Execution - GitHub Clone", () => {
     it("should clone repo and cleanup for GitHub URLs", async () => {
-      const { isGitHubPath, parseGitHubUrl, cloneRepo } = await import(
-        "../src/tools/github.ts"
-      );
+      const { isGitHubPath, parseGitHubUrl, cloneRepo } =
+        await import("../src/tools/github.ts");
 
       (isGitHubPath as ReturnType<typeof vi.fn>).mockReturnValue(true);
       (parseGitHubUrl as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -723,10 +732,10 @@ describe("VulnHuntr Workflow E2E", () => {
   });
 
   // ═════════════════════════════════════════════════════════════════════
-  // Section 8: andWhen Conditional — Cleanup Gating
+  // Section 8: andWhen Conditional - Cleanup Gating
   // ═════════════════════════════════════════════════════════════════════
 
-  describe("andWhen — Conditional Cleanup", () => {
+  describe("andWhen - Conditional Cleanup", () => {
     it("should NOT cleanup when repo is local (not cloned)", async () => {
       const rmSync = fs.rmSync as unknown as ReturnType<typeof vi.fn>;
       rmSync.mockClear();
@@ -749,7 +758,9 @@ describe("VulnHuntr Workflow E2E", () => {
       const { BudgetEnforcer } = await import("../src/cost-tracker/index.ts");
 
       // biome-ignore lint: mock constructor override
-      (BudgetEnforcer as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function (this: any) {
+      (
+        BudgetEnforcer as unknown as ReturnType<typeof vi.fn>
+      ).mockImplementationOnce(function (this: any) {
         this.maxBudgetUsd = 0.01;
         this.check = vi.fn(() => false);
         this.getRemainingBudget = vi.fn(() => 0);
@@ -777,7 +788,9 @@ describe("VulnHuntr Workflow E2E", () => {
       const { AnalysisCheckpoint } = await import("../src/checkpoint/index.ts");
 
       // biome-ignore lint: mock constructor override
-      (AnalysisCheckpoint as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function (this: any) {
+      (
+        AnalysisCheckpoint as unknown as ReturnType<typeof vi.fn>
+      ).mockImplementationOnce(function (this: any) {
         this.canResume = vi.fn(() => true);
         this.resume = vi.fn(() => ({
           completedFiles: ["app.py"],
@@ -828,7 +841,11 @@ describe("VulnHuntr Workflow E2E", () => {
             confidence_score: 7,
             vulnerability_types: ["LFI"],
             context_code: [
-              { name: "open_file", reason: "file access", code_line: "open(user_input)" },
+              {
+                name: "open_file",
+                reason: "file access",
+                code_line: "open(user_input)",
+              },
             ],
           });
         }
@@ -840,7 +857,11 @@ describe("VulnHuntr Workflow E2E", () => {
             confidence_score: 8,
             vulnerability_types: ["LFI"],
             context_code: [
-              { name: "sanitize_path", reason: "check sanitization", code_line: "sanitize_path(p)" },
+              {
+                name: "sanitize_path",
+                reason: "check sanitization",
+                code_line: "sanitize_path(p)",
+              },
             ],
           });
         }
@@ -892,7 +913,9 @@ describe("VulnHuntr Workflow E2E", () => {
     });
 
     it("should handle unreadable files gracefully", async () => {
-      const readFileSync = fs.readFileSync as unknown as ReturnType<typeof vi.fn>;
+      const readFileSync = fs.readFileSync as unknown as ReturnType<
+        typeof vi.fn
+      >;
       readFileSync.mockImplementation((p: unknown) => {
         if (typeof p === "string" && p.includes("app.py")) {
           throw new Error("Permission denied");
@@ -925,8 +948,8 @@ describe("VulnHuntr Workflow E2E", () => {
     });
 
     it("should handle malformed LLM response gracefully", async () => {
-      mockChat.mockImplementation(async () =>
-        "This is not valid JSON at all, just random text",
+      mockChat.mockImplementation(
+        async () => "This is not valid JSON at all, just random text",
       );
 
       const result = await vulnhuntrWorkflow.run({
@@ -1151,7 +1174,10 @@ describe("VulnHuntr Workflow E2E", () => {
   describe("Single File Analysis (analyze_path)", () => {
     it("should analyze a single file when analyze_path is provided", async () => {
       const statSync = fs.statSync as unknown as ReturnType<typeof vi.fn>;
-      statSync.mockReturnValue({ isFile: () => true, isDirectory: () => false });
+      statSync.mockReturnValue({
+        isFile: () => true,
+        isDirectory: () => false,
+      });
 
       const result = await vulnhuntrWorkflow.run({
         repo_path: "/tmp/test-repo",
@@ -1161,7 +1187,10 @@ describe("VulnHuntr Workflow E2E", () => {
 
       expect(result.status).toBe("completed");
 
-      statSync.mockReturnValue({ isFile: () => false, isDirectory: () => true });
+      statSync.mockReturnValue({
+        isFile: () => false,
+        isDirectory: () => true,
+      });
     });
   });
 
