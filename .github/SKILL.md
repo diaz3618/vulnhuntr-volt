@@ -219,18 +219,6 @@ Real-time TypeScript intelligence:
 
 **When**: TypeScript development, debugging type errors, understanding existing code.
 
-### Workflow MCP Servers (for vulnhuntr-volt analysis workflow)
-
-These MCP servers are integrated into the vulnhuntr VoltAgent workflow for code analysis:
-
-| Server | Purpose | npm Package |
-|--------|---------|-------------|
-| **filesystem** | Read/write/search files in repos | `@anthropic/mcp-filesystem` |
-| **ripgrep** | Fast regex search across codebases | `@anthropic/mcp-ripgrep` |
-| **tree-sitter** | AST parsing, symbol extraction | `tree-sitter-mcp` |
-| **process** | Run external tools (linters, etc.) | `@anthropic/mcp-process` |
-| **codeql** | Advanced code analysis queries | `codeql-mcp` |
-
 ---
 
 ## Critical Constraints

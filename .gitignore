@@ -159,3 +159,4 @@ dist
 # misc
 /repos
 /internal
+/.vulnhuntr-reports/*

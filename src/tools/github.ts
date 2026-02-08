@@ -43,9 +43,12 @@ function parseGitHubUrl(
 	return null;
 }
 
-/** Check if a path is a GitHub URL or shorthand */
+/** Check if a path is a GitHub URL or shorthand (not a local path) */
 function isGitHubPath(repoPath: string): boolean {
-	return repoPath.includes("github.com") || /^[^/]+\/[^/]+$/.test(repoPath);
+	if (repoPath.includes("github.com")) return true;
+	// owner/repo shorthand — but only if it doesn't exist on the local filesystem
+	if (/^[^/]+\/[^/]+$/.test(repoPath) && !fs.existsSync(repoPath)) return true;
+	return false;
 }
 
 /** Clone a GitHub repository to a temporary directory */

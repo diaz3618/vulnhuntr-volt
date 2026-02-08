@@ -103,6 +103,26 @@ curl -X POST http://localhost:3141/workflows/vulnhuntr-analysis/execute \
 
 ## Update History
 
+- [2026-02-08 3:39:45 AM] [Unknown User] - Decision Made: Remove 3 non-existent MCP server packages
+- [2026-02-08 3:39:37 AM] [Unknown User] - Decision Made: Keep andThen + dynamic Agent instead of andAgent for README summarization
+- [2026-02-08 3:39:29 AM] [Unknown User] - Fixed bugs and verified end-to-end workflow (Claude Code): Claude Code comprehensive audit and fix session:
+
+1. **Fixed LFI bypass missing comma** (src/prompts/index.ts): Split "C:\\win.ini/?../../../../../../../etc/passwd" into two separate entries. Bug existed in original Python too.
+
+2. **Fixed isGitHubPath false positive** (src/tools/github.ts): Relative paths like "repos/vulnhuntr" were being treated as GitHub owner/repo shorthand. Added fs.existsSync check to distinguish local paths.
+
+3. **Fixed relative path issue** (src/workflows/vulnhuntr.ts): localPath now resolved to absolute with path.resolve() so MCP servers get correct scoped paths.
+
+4. **Wired MCP tools to analysis Agents** (src/llm/index.ts, src/workflows/vulnhuntr.ts): Added optional tools parameter to LLMSession and createAnalysisSession(). MCP tools from filesystem and ripgrep servers are now passed to analysis Agent instances.
+
+5. **Removed non-existent MCP packages** (src/mcp/index.ts): Removed tree-sitter (mcp-server-tree-sitter: 404), process (@anonx3247/process-mcp: broken), codeql (codeql-mcp: 404). These were hallucinated by Copilot. Kept filesystem (14 tools) and ripgrep (5 tools) which work.
+
+6. **End-to-end test PASSED**: `npm run scan -- -r repos/vulnhuntr -c 3 -i 2` successfully analyzed 3 Python files, found 2 findings (SSRF, RCE in LLMs.py), generated all 6 report formats (JSON, SARIF, MD, HTML, CSV, cost).
+
+7. **Created internal/guide.md**: Comprehensive project guide covering architecture, how to run, MCP servers, analysis pipeline, configuration, troubleshooting.
+
+All 56 tests pass. TypeScript compiles clean. Build succeeds.
+- [2026-02-08 3:10:19 AM] [Unknown User] - Decision Made: Claude Code comprehensive audit and fix plan
 - [2026-02-08 8:20:22 PM] [Unknown User] - Verified memory-bank-mcp connection: Properly connected memory-bank-mcp to the existing memory bank folder. The MCP server required explicit initialization (`initialize_memory_bank`) and mode switch (`switch_mode code`) to recognize the existing files. All 5 core files are present and complete. Status: isComplete=true, mode=code.
 - [2026-02-07 2:18:01 AM] [Unknown User] - Decision Made: vitest v4 constructor mock pattern
 - [2026-02-07 2:17:53 AM] [Unknown User] - Decision Made: andAll returns tuple, not merged object

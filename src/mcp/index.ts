@@ -5,12 +5,9 @@
  * code analysis capabilities. These servers run as stdio processes and
  * are accessed via VoltAgent's MCPConfiguration.
  *
- * Servers from repos/vulnhuntr/docs/MCP_SERVERS.md:
+ * Servers:
  * - filesystem: File system operations (@modelcontextprotocol/server-filesystem)
  * - ripgrep: Fast text search (mcp-ripgrep)
- * - tree-sitter: AST parsing (mcp-server-tree-sitter)
- * - process: Shell command execution (@anonx3247/process-mcp)
- * - codeql: Static analysis queries (codeql-mcp)
  */
 
 import { MCPConfiguration, type Tool, type ToolSchema } from "@voltagent/core";
@@ -18,12 +15,7 @@ import { MCPConfiguration, type Tool, type ToolSchema } from "@voltagent/core";
 // ---------------------------------------------------------------------------
 // Server key type
 // ---------------------------------------------------------------------------
-export type MCPServerKey =
-	| "filesystem"
-	| "ripgrep"
-	| "tree-sitter"
-	| "process"
-	| "codeql";
+export type MCPServerKey = "filesystem" | "ripgrep";
 
 // ---------------------------------------------------------------------------
 // Configuration builder
@@ -38,7 +30,7 @@ export type MCPServerKey =
  * will surface a connection error that callers should handle gracefully.
  *
  * @param repoPath  Absolute path to the repository being analysed.
- *                  Used to scope filesystem access and tree-sitter parsing.
+ *                  Used to scope filesystem access and search.
  */
 export function createAnalysisMCPConfig(
 	repoPath: string,
@@ -70,39 +62,6 @@ export function createAnalysisMCPConfig(
 				},
 				timeout: 30_000,
 			},
-
-			// ----- Tree-sitter MCP Server -----
-			// Provides: AST parsing, symbol extraction, code structure analysis
-			"tree-sitter": {
-				type: "stdio",
-				command: "npx",
-				args: ["-y", "mcp-server-tree-sitter"],
-				env: {
-					// tree-sitter server needs to know which directory to parse
-					PROJECT_PATH: repoPath,
-				},
-				timeout: 60_000,
-			},
-
-			// ----- Process MCP Server -----
-			// Provides: shell command execution for external tool integration
-			process: {
-				type: "stdio",
-				command: "npx",
-				args: ["-y", "@anonx3247/process-mcp"],
-				cwd: repoPath,
-				timeout: 60_000,
-			},
-
-			// ----- CodeQL MCP Server -----
-			// Provides: CodeQL query execution for advanced static analysis
-			codeql: {
-				type: "stdio",
-				command: "npx",
-				args: ["-y", "codeql-mcp"],
-				cwd: repoPath,
-				timeout: 120_000,
-			},
 		},
 	});
 }
@@ -127,13 +86,7 @@ export async function getMCPTools(repoPath: string): Promise<{
 }> {
 	const config = createAnalysisMCPConfig(repoPath);
 	const tools: Tool<ToolSchema>[] = [];
-	const serverKeys: MCPServerKey[] = [
-		"filesystem",
-		"ripgrep",
-		"tree-sitter",
-		"process",
-		"codeql",
-	];
+	const serverKeys: MCPServerKey[] = ["filesystem", "ripgrep"];
 
 	for (const key of serverKeys) {
 		try {

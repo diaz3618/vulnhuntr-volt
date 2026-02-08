@@ -123,3 +123,43 @@
   - All constructor mocks work correctly with new
   - Agent class mocked while createWorkflowChain stays real
   - Pattern documented for future test development
+
+## Claude Code comprehensive audit and fix plan
+- **Date:** 2026-02-08 3:10:19 AM
+- **Author:** Unknown User
+- **Context:** Claude Code (Opus 4.6) was brought in to audit and fix vulnhuntr-volt after Copilot's implementation. Full codebase review completed including: all 18 source files, original Python vulnhuntr, VoltAgent docs (workflows, agents, MCP, execute-api, workflow-state, andForEach, andAll), memory bank state. Key issues identified: (1) LFI bypass list has a missing comma bug ported from Python, (2) MCP getClient/getAgentTools API may not match VoltAgent 2.x, (3) Prompt structure differences from original, (4) No AI SDK provider import but VoltAgent model strings handle it, (5) workflowState/setWorkflowState is correct per bundled docs, (6) andAll data flow is confirmed to merge results (per latest docs) but code treats it as tuple.
+- **Decision:** Perform systematic fix of all identified issues, verify MCP client API against actual VoltAgent 2.x types, fix prompt fidelity, fix LFI bypass list, test end-to-end with actual repo, create internal guide document.
+- **Alternatives Considered:** 
+  - Continue with existing code as-is
+  - Complete rewrite from scratch
+  - Partial fix focusing only on MCP
+- **Consequences:** 
+  - Full working vulnerability scanner
+  - Accurate reproduction of original vulnhuntr quality
+  - Proper VoltAgent integration
+  - Working MCP client connections
+
+## Keep andThen + dynamic Agent instead of andAgent for README summarization
+- **Date:** 2026-02-08 3:39:37 AM
+- **Author:** Unknown User
+- **Context:** Investigated whether to refactor the summarize-readme step to use VoltAgent's andAgent() pattern for better observability.
+- **Decision:** Kept the current andThen + dynamic Agent pattern because andAgent requires a static Agent at chain-build time, but the model comes from workflowState at runtime (determined by CLI --llm/--model flags).
+- **Alternatives Considered:** 
+  - Use andAgent with a fixed default model
+  - Create Agent with model override at runtime
+- **Consequences:** 
+  - The current approach works correctly for all providers (anthropic, openai, ollama)
+  - No observability regression since VoltAgent still tracks the Agent.generateText calls
+
+## Remove 3 non-existent MCP server packages
+- **Date:** 2026-02-08 3:39:45 AM
+- **Author:** Unknown User
+- **Context:** End-to-end testing revealed that mcp-server-tree-sitter, @anonx3247/process-mcp, and codeql-mcp do not exist on npm. They were hallucinated by GitHub Copilot from a reference to repos/vulnhuntr/docs/MCP_SERVERS.md which also doesn't exist.
+- **Decision:** Removed tree-sitter, process, and codeql from MCP config. Kept only filesystem (14 tools) and ripgrep (5 tools) which are real, working packages.
+- **Alternatives Considered:** 
+  - Search for alternative real packages
+  - Keep them with graceful degradation
+- **Consequences:** 
+  - MCP startup is ~15 seconds faster (no failed npx attempts)
+  - 19 real MCP tools available vs 0 working out of 5 before
+  - Can add real tree-sitter/codeql MCP servers later if they become available

@@ -9,7 +9,7 @@
  * that significantly improve response quality.
  */
 
-import { Agent } from "@voltagent/core";
+import { Agent, type Tool, type ToolSchema } from "@voltagent/core";
 import type { CostTracker } from "../cost-tracker/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,6 +84,7 @@ export interface LLMSessionOptions {
 	modelStr: string;
 	costTracker?: CostTracker;
 	currentFile?: string;
+	tools?: Tool<ToolSchema>[];
 }
 
 export class LLMSession {
@@ -105,6 +106,7 @@ export class LLMSession {
 			name: "vulnhuntr-llm",
 			instructions: opts.systemPrompt,
 			model: opts.modelStr,
+			...(opts.tools && opts.tools.length > 0 ? { tools: opts.tools } : {}),
 		});
 	}
 
@@ -218,10 +220,12 @@ export function createAnalysisSession(
 	systemPrompt: string,
 	modelStr: string,
 	costTracker?: CostTracker,
+	tools?: Tool<ToolSchema>[],
 ): LLMSession {
 	return new LLMSession({
 		systemPrompt,
 		modelStr,
 		costTracker,
+		tools,
 	});
 }
