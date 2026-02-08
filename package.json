@@ -1,12 +1,19 @@
 {
   "name": "vulnhuntr-volt",
   "version": "0.1.0",
-  "description": "A VoltAgent application",
+  "description": "AI-powered Python vulnerability scanner using VoltAgent workflows",
   "type": "module",
+  "bin": {
+    "vulnhuntr": "./dist/cli.js"
+  },
   "scripts": {
     "dev": "tsx watch --env-file=.env ./src",
+    "dev:server": "tsx watch --env-file=.env ./src/index.ts",
     "build": "tsdown",
     "start": "node dist/index.js",
+    "start:server": "node dist/index.js",
+    "vulnhuntr": "tsx --env-file=.env ./src/cli.ts",
+    "scan": "tsx --env-file=.env ./src/cli.ts",
     "lint": "biome check ./src",
     "lint:fix": "biome check --write ./src",
     "typecheck": "tsc --noEmit",

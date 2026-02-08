@@ -12,16 +12,16 @@
 
 ### Prerequisites
 
-- Node.js 20+ 
+- Node.js 20+
 - Git
 - Anthropic API Key (optional - can configure later)
-  - Get your key at: https://console.anthropic.com/settings/keys
+  - Get your key at: <https://console.anthropic.com/settings/keys>
 
 ### Installation
 
 ```bash
 # Clone the repository (if not created via create-voltagent-app)
-git clone <your-repo-url>
+git clone https://github.com/diaz3618/vulnhuntr-volt.git
 cd vulnhuntr-volt
 
 # Install dependencies
@@ -125,6 +125,7 @@ This workspace includes an **intelligent agent orchestration system** for GitHub
 ## 🔍 VoltOps Platform
 
 ### Local Development
+
 The VoltOps Platform provides real-time observability for your agents during development:
 
 1. **Start your agent**: Run `npm run dev`
@@ -132,21 +133,25 @@ The VoltOps Platform provides real-time observability for your agents during dev
 3. **Auto-connect**: The console connects to your local agent at `http://localhost:3141`
 
 Features:
+
 - 🔍 Real-time execution visualization
 - 🐛 Step-by-step debugging
 - 📊 Performance insights
 - 💾 No data leaves your machine
 
 ### Production Monitoring
+
 For production environments, configure VoltOpsClient:
 
 1. **Create a project**: Sign up at [console.voltagent.dev/tracing-setup](https://console.voltagent.dev/tracing-setup)
 2. **Get your keys**: Copy your Public and Secret keys
 3. **Add to .env**:
+
    ```env
    VOLTAGENT_PUBLIC_KEY=your-public-key
    VOLTAGENT_SECRET_KEY=your-secret-key
    ```
+
 4. **Configure in code**: The template already includes VoltOpsClient setup!
 
 ## 📁 Project Structure
@@ -193,9 +198,82 @@ vulnhuntr-volt/
 └── tsconfig.json
 ```
 
-## 🧪 Usage Examples
+## 🧪 Usage
 
-### Analyze a Local Repository
+### CLI (Command Line Interface)
+
+The fastest way to scan a repository:
+
+```bash
+# Analyze a local repository
+npm run scan -- -r /path/to/python-project
+
+# Analyze a GitHub repository
+npm run scan -- -r https://github.com/owner/repo
+
+# Analyze a specific file with OpenAI
+npm run scan -- -r /path/to/project -a src/api/server.py -l openai
+
+# Scan for specific vulnerability types with budget limit
+npm run scan -- -r /path/to/project -v LFI -v RCE -b 5.00
+
+# Full options
+npm run vulnhuntr -- --help
+```
+
+**CLI Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-r, --root` | Local path or GitHub URL (required) | - |
+| `-a, --analyze` | Specific file/directory to analyze | entire repo |
+| `-l, --llm` | LLM provider: anthropic, openai, ollama | anthropic |
+| `-m, --model` | Specific model name | claude-sonnet-4 |
+| `-b, --budget` | Maximum budget in USD | unlimited |
+| `-c, --confidence` | Minimum confidence threshold (0-10) | 5 |
+| `-i, --iterations` | Max secondary analysis iterations | 7 |
+| `-v, --vuln` | Vulnerability types to scan (repeatable) | all |
+
+### REST API (VoltAgent Server)
+
+Start the server and trigger workflows via HTTP:
+
+```bash
+# Start the VoltAgent server
+npm run dev:server
+
+# Server runs at http://localhost:3141
+```
+
+**Execute Workflow:**
+
+```bash
+curl -X POST http://localhost:3141/workflows/vulnhuntr-analysis/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "repo_path": "/path/to/python-project",
+      "provider": "anthropic",
+      "min_confidence": 5
+    }
+  }'
+```
+
+**Stream Workflow (SSE):**
+
+```bash
+curl -N -X POST http://localhost:3141/workflows/vulnhuntr-analysis/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "repo_path": "https://github.com/owner/repo",
+      "provider": "anthropic"
+    }
+  }'
+```
+
+### Workflow Input Schema
+
 ```json
 {
   "repo_path": "/path/to/python-project",
@@ -206,6 +284,7 @@ vulnhuntr-volt/
 ```
 
 ### Analyze a GitHub Repository
+
 ```json
 {
   "repo_path": "https://github.com/owner/repo",
@@ -216,6 +295,7 @@ vulnhuntr-volt/
 ```
 
 ### Analyze a Specific File
+
 ```json
 {
   "repo_path": "/path/to/project",
@@ -226,6 +306,7 @@ vulnhuntr-volt/
 ```
 
 ### Configuration File (`.vulnhuntr.yaml`)
+
 ```yaml
 cost:
   budget: 10.0
