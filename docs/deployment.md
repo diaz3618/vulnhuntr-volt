@@ -178,7 +178,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run VulnHuntr-Volt
-        uses: docker://ghcr.io/yourusername/vulnhuntr-volt:latest
+        uses: docker://ghcr.io/diaz3618/vulnhuntr-volt:latest
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:

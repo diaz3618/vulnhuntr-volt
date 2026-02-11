@@ -24,7 +24,7 @@ This guide covers extending and customizing VulnHuntr-Volt for your specific nee
 ### Clone and Install
 
 ```bash
-git clone https://github.com/yourusername/vulnhuntr-volt.git
+git clone https://github.com/diaz3618/vulnhuntr-volt.git
 cd vulnhuntr-volt
 npm install
 ```
