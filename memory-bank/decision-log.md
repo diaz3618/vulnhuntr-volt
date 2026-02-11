@@ -163,3 +163,19 @@
   - MCP startup is ~15 seconds faster (no failed npx attempts)
   - 19 real MCP tools available vs 0 working out of 5 before
   - Can add real tree-sitter/codeql MCP servers later if they become available
+
+## Modular test suite: one file per source module (Claude Code)
+- **Date:** 2026-02-08 5:11:03 AM
+- **Author:** Unknown User
+- **Context:** Claude Code was asked to rebuild the test suite after the old tests/ directory was deleted. The original was a single large workflow e2e test file. The user wanted modular tests covering as many parts as possible, with only meaningful tests and minimal comments.
+- **Decision:** Created 10 new unit test files (one per source module) plus kept the existing workflow e2e test. Each unit test file covers the public API of its module with real assertions (no mocking needed for pure functions). Filesystem-dependent tests (repo, checkpoint, symbol-finder, config) use temp directories with automatic cleanup. The workflow.test.ts mocks all externals for full chain testing. Shared fixtures.ts provides factory functions (makeFinding, makeWorkflowResult, makeTempDir) to avoid duplication. Added test:e2e script to package.json.
+- **Alternatives Considered:** 
+  - Single monolithic test file covering everything (original approach — harder to maintain, unclear what's tested)
+  - Only test pure functions, skip filesystem-dependent modules (less coverage)
+  - Mock-heavy approach for all modules (brittle, low confidence)
+- **Consequences:** 
+  - 206 tests across 11 files, all passing in ~2 seconds
+  - Each module can be tested independently
+  - Filesystem tests use real temp dirs — high confidence, minimal mocking
+  - workflow.test.ts provides integration coverage with full chain mocking
+  - Easy to add tests when new functions are added to a module

@@ -1,0 +1,5 @@
+{
+    "repo_path": "https://github.com/username/repository",
+    "provider": "anthropic",
+    "max_budget_usd": 10.0
+}

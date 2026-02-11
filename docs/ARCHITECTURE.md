@@ -1,10 +1,5 @@
 # Agent Orchestration System Architecture
 
-**Version**: 1.0.0  
-**Created**: February 6, 2026
-
----
-
 ## System Diagram
 
 ```mermaid
@@ -12,7 +7,7 @@ graph TB
     User[👤 User asks question in VS Code]
     User --> Copilot[🤖 GitHub Copilot]
     
-    Copilot --> Orchestrator[📋 Main Orchestrator<br/>.agents/AGENT.md]
+    Copilot --> Orchestrator[📋 Main Orchestrator<br/>.agents/SKILL.md]
     
     Orchestrator --> Analysis{Analyze Domain}
     
@@ -21,7 +16,7 @@ graph TB
     Analysis -->|TypeScript/Node/Build| TSDev[📘 TypeScript Dev<br/>typescript-dev.md]
     Analysis -->|Commits/Branches/Tags| GitOps[🌿 Git Operations<br/>git-ops.md]
     Analysis -->|Docker/Deploy/CI| Infra[🐳 Infrastructure<br/>infrastructure.md]
-    Analysis -->|Python/Vuln Scanner| Vulnhuntr[🔒 Vulnhuntr<br/>repos/vulnhuntr/AGENT.md]
+    Analysis -->|Python/Vuln Scanner| Vulnhuntr[🔒 Vulnhuntr<br/>repos/vulnhuntr/SKILL.md]
     
     VoltDev --> Research[🔍 Research Codebase]
     VoltDocs --> Research
@@ -67,7 +62,7 @@ sequenceDiagram
     participant S as Codebase Search
     
     U->>C: "How do I add a tool?"
-    C->>O: Load AGENT.md
+    C->>O: Load SKILL.md
     O->>O: Analyze: Domain = VoltAgent
     O->>V: Load voltagent-dev.md
     V->>S: Search src/tools/
@@ -93,7 +88,7 @@ sequenceDiagram
     participant S as Codebase Search
     
     U->>C: "Create agent & containerize"
-    C->>O: Load AGENT.md
+    C->>O: Load SKILL.md
     O->>O: Analyze: VoltAgent + Docker
     
     par Load Sub-Agents
@@ -127,13 +122,13 @@ sequenceDiagram
     participant U as User
     participant C as Copilot
     participant O as Main Orchestrator
-    participant Vh as Vulnhuntr AGENT.md
+    participant Vh as Vulnhuntr SKILL.md
     participant S as Vulnhuntr Codebase
     
     U->>C: "Fix vulnhuntr validation"
-    C->>O: Load .agents/AGENT.md
+    C->>O: Load .agents/SKILL.md
     O->>O: Analyze: Vulnhuntr domain
-    O->>Vh: Delegate to repos/vulnhuntr/AGENT.md
+    O->>Vh: Delegate to repos/vulnhuntr/SKILL.md
     Vh->>Vh: Use Vulnhuntr sub-agents
     Vh->>S: Search vulnhuntr/ code
     S->>Vh: Find validation code
@@ -164,7 +159,7 @@ graph TD
     Q3 -->|Yes| LoadTS[Load typescript-dev.md]
     Q4 -->|Yes| LoadGit[Load git-ops.md]
     Q5 -->|Yes| LoadInfra[Load infrastructure.md]
-    Q6 -->|Yes| LoadVH[Load vulnhuntr/AGENT.md]
+    Q6 -->|Yes| LoadVH[Load vulnhuntr/SKILL.md]
     
     Q1 -->|+ Documentation| Multi1[Load voltagent-dev.md<br/>+ voltagent-docs.md]
     Q1 -->|+ Docker| Multi2[Load voltagent-dev.md<br/>+ infrastructure.md]
@@ -204,7 +199,7 @@ graph TD
 ┌─────────────────────────────────┐
 │   GitHub Copilot (VS Code)      │
 │   - Loads via settings.json     │
-│   - Always includes AGENT.md    │
+│   - Always includes SKILL.md    │
 └─────────────────────────────────┘
 ```
 
@@ -213,7 +208,7 @@ graph TD
 ```
 ┌─────────────────────────────────┐
 │   Main Orchestrator             │
-│   .agents/AGENT.md (~15KB)      │
+│   .agents/SKILL.md (~15KB)      │
 │   - Analyzes user question      │
 │   - Identifies domain(s)        │
 │   - Selects 1-3 sub-agents      │
@@ -329,7 +324,7 @@ Response (faster, more accurate)
 {
   "github.copilot.advanced": {
     "contextFiles": [
-      ".agents/AGENT.md"  ← Always loaded
+      ".agents/SKILL.md"  ← Always loaded
     ]
   }
 }
@@ -344,7 +339,7 @@ Orchestrator decides which sub-agents to load
 ```
 vulnhuntr-volt/
 ├── .agents/                    ← Agent system root
-│   ├── AGENT.md               ← Main orchestrator (auto-loaded)
+│   ├── SKILL.md               ← Main orchestrator (auto-loaded)
 │   ├── README.md              ← Full documentation
 │   ├── QUICKSTART.md          ← Quick start guide
 │   ├── ARCHITECTURE.md        ← This file
@@ -364,7 +359,7 @@ vulnhuntr-volt/
 ├── src/                       ← VoltAgent application
 ├── repos/
 │   └── vulnhuntr/            ← Separate agent system
-│       └── AGENT.md          ← Vulnhuntr orchestrator
+│       └── SKILL.md          ← Vulnhuntr orchestrator
 └── [other project files]
 ```
 
@@ -415,7 +410,7 @@ Savings: ~48% fewer tokens
 ```mermaid
 graph LR
     A[Create new sub-agent file] --> B[Follow template structure]
-    B --> C[Add to AGENT.md registry]
+    B --> C[Add to SKILL.md registry]
     C --> D[Update decision tree]
     D --> E[Test with questions]
     E --> F[Document in README]
@@ -438,7 +433,7 @@ graph LR
 ### Update Frequency
 
 ```
-Main Orchestrator (AGENT.md)
+Main Orchestrator (SKILL.md)
 ├── Weekly: Review delegation logic
 ├── Monthly: Update sub-agent registry
 └── As needed: Add new routing rules

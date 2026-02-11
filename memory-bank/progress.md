@@ -103,6 +103,35 @@ curl -X POST http://localhost:3141/workflows/vulnhuntr-analysis/execute \
 
 ## Update History
 
+- [2026-02-08 5:11:03 AM] [Unknown User] - Decision Made: Modular test suite: one file per source module (Claude Code)
+- [2026-02-08 5:10:51 AM] [Unknown User] - Built modular test suite (Claude Code): Claude Code (Opus 4.6) rebuilt the entire test suite from scratch after the old tests/ directory was deleted:
+
+1. **Created 11 test files in tests/** (206 tests total, all passing):
+   - fixtures.ts — Shared factories: makeFinding, makeWorkflowResult, makeTempDir
+   - llm.test.ts (13) — fixJsonResponse, detectProvider
+   - schemas.test.ts (20) — Zod validation, responseToFinding confidence→severity mapping, CWE maps
+   - prompts.test.ts (20) — XML builders, compound prompts, VULN_SPECIFIC data (verifies LFI comma fix)
+   - github.test.ts (10) — parseGitHubUrl, isGitHubPath
+   - reporters.test.ts (21) — All 5 report generators (SARIF, JSON, MD, HTML, CSV), sorting, escaping
+   - cost-tracker.test.ts (19) — getModelPricing, estimateTokens, CostTracker round-trip, BudgetEnforcer
+   - config.test.ts (12) — defaultConfig, configFromDict, mergeConfigWithInput, loadConfig
+   - symbol-finder.test.ts (9) — extractSymbol (3-phase search), extractDefinitionBlock
+   - repo.test.ts (14) — getPythonFiles (exclusions), isNetworkRelated (Flask/FastAPI/Django), getReadmeContent
+   - checkpoint.test.ts (12) — Full lifecycle: start, markComplete, canResume, finalize, backward-compat keys
+   - workflow.test.ts (56) — Full workflow chain e2e (mocked LLM/fs/MCP), moved from old test/ folder
+
+2. **Added test:e2e script** to package.json: `"test:e2e": "vitest run tests/"`
+
+3. **Removed old test/ directory** (singular) — contents preserved in tests/workflow.test.ts
+
+4. **Updated internal/guide.md**:
+   - Added integrations/ directory (github-issues.ts, webhook.ts) to architecture tree
+   - Added full tests/ directory listing with annotations
+   - Added Testing section (vitest setup, npm scripts, structure, 206 tests)
+   - Added Integrations section (GitHub Issues, Webhooks)
+   - Added note about MCP tools being wired to LLMSession Agent
+
+All 206 tests pass. TypeScript compiles clean.
 - [2026-02-08 3:39:45 AM] [Unknown User] - Decision Made: Remove 3 non-existent MCP server packages
 - [2026-02-08 3:39:37 AM] [Unknown User] - Decision Made: Keep andThen + dynamic Agent instead of andAgent for README summarization
 - [2026-02-08 3:39:29 AM] [Unknown User] - Fixed bugs and verified end-to-end workflow (Claude Code): Claude Code comprehensive audit and fix session:

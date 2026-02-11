@@ -1,0 +1,11 @@
+{
+    "repo_path": "./my-app",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "analyze_path": "src/api/handlers.py",
+    "vuln_types": [
+        "RCE",
+        "SQLI",
+        "XSS"
+    ]
+}

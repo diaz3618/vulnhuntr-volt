@@ -26,38 +26,49 @@ Replicate the Python-based vulnhuntr autonomous vulnerability scanner as a TypeS
 - **Framework**: @voltagent/core ^2.0.0 (Agents, Workflows via createWorkflowChain, Tools)
 - **Build**: tsdown v0.15.12, ESM, Node.js 20+, TypeScript strict mode
 - **AI SDK**: ai ^6.0.0 (CallSettings uses `maxOutputTokens` not `maxTokens`)
+- **Test framework**: vitest ^4.0.18 (pool: "forks", 206 tests across 11 files)
 - **WorkflowState**: `executionId`, `active`, `status`, `input`, `data`, `workflowState`, `result` (no `stepId`)
 
-### Module Map (15 source files)
+### Module Map (18 source files)
 
 | Module | Path | Purpose |
 |--------|------|---------|
-| Entry | `src/index.ts` | VoltAgent server, agent, tool + workflow registration |
+| Server Entry | `src/index.ts` | VoltAgent server, agent, tool + workflow registration |
+| CLI Entry | `src/cli.ts` | Command-line interface (argparse-style, Zod validation) |
 | Schemas | `src/schemas/index.ts` | VulnType, FindingSeverity, 18-field FindingSchema, ResponseSchema, responseToFinding() |
 | Prompts | `src/prompts/index.ts` | All 7 vuln templates (character-identical to Python), system/initial/secondary prompts |
-| Workflow | `src/workflows/vulnhuntr.ts` | 5-step chain: setup → discover → readme → analyze → reports |
-| Repo Tools | `src/tools/repo.ts` | File discovery, 120+ network patterns, exclusion lists |
+| Workflow | `src/workflows/vulnhuntr.ts` | 8-step chain: setup → discover+readme → prepare → analyze → collect → reports → cleanup → finalize |
+| Workflow barrel | `src/workflows/index.ts` | Re-export |
+| Repo Tools | `src/tools/repo.ts` | File discovery, ~120 network patterns, exclusion lists |
 | GitHub Tools | `src/tools/github.ts` | Clone, URL parsing, cleanup |
 | Symbol Finder | `src/tools/symbol-finder.ts` | Regex-based symbol resolution (3 strategies) |
-| Reporters | `src/reporters/index.ts` | SARIF, JSON, Markdown, HTML, CSV (6 formats) |
+| Tool barrel | `src/tools/index.ts` | Tool re-exports for VoltAgent registration |
+| Reporters | `src/reporters/index.ts` | SARIF, JSON, Markdown, HTML, CSV (5 formats + cost report) |
 | LLM Layer | `src/llm/index.ts` | LLMSession, Claude prefill, JSON fixing, conversation history |
 | Cost Tracker | `src/cost-tracker/index.ts` | CostTracker, BudgetEnforcer, 14-model pricing, estimation |
 | Config | `src/config/index.ts` | .vulnhuntr.yaml loading, merge with CLI input |
 | Checkpoint | `src/checkpoint/index.ts` | AnalysisCheckpoint, SIGINT handler, atomic writes |
 | GitHub Issues | `src/integrations/github-issues.ts` | Issue creation, duplicate detection |
 | Webhook | `src/integrations/webhook.ts` | HMAC-SHA256, Slack/Discord/Teams/JSON |
-| MCP | `src/mcp/index.ts` | 5 MCP servers (filesystem, ripgrep, tree-sitter, process, codeql) |
+| MCP | `src/mcp/index.ts` | 2 MCP servers (filesystem, ripgrep) — tools wired to LLM Agent |
 
-### MCP Servers
+### MCP Servers (Runtime Analysis)
 
-- **memory-bank-mcp** — MANDATORY, project memory persistence
-- **voltagent docs-mcp** — Documentation search
-- **lsp-mcp** — Language server protocol tools
-- **filesystem** — File read/write/search (runtime analysis)
-- **ripgrep** — Fast code search across repos
-- **tree-sitter** — AST parsing for Python files
-- **process** — Shell command execution
-- **codeql** — Static analysis queries
+| Server | Package | Tools | Purpose |
+|--------|---------|-------|---------|
+| filesystem | `@modelcontextprotocol/server-filesystem` | 14 | File read/write/list/search within repo |
+| ripgrep | `mcp-ripgrep` | 5 | Fast text search across files |
+
+MCP tools are passed to the LLMSession Agent via `createAnalysisSession()` so the LLM can use them during analysis. Servers start via `npx -y` and degrade gracefully if unavailable.
+
+### Entry Points
+
+| Method | Command | Description |
+|--------|---------|-------------|
+| CLI | `npm run scan -- -r /path/to/repo` | Direct workflow execution |
+| CLI (GitHub) | `npm run scan -- -r https://github.com/owner/repo` | Clone + analyze |
+| REST API | `POST /workflows/vulnhuntr-analysis/execute` | VoltAgent server |
+| Programmatic | `vulnhuntrWorkflow.run(input)` | Direct chain invocation |
 
 ## Vulnerability Types Covered
 
@@ -74,20 +85,23 @@ Replicate the Python-based vulnhuntr autonomous vulnerability scanner as a TypeS
 ## Analysis Pipeline Flow
 
 1. **Setup Repo** — Clone GitHub repos or validate local paths; load .vulnhuntr.yaml config; init CostTracker + BudgetEnforcer + AnalysisCheckpoint; connect MCP servers
-2. **Discover Files** — Scan for Python files, filter to network-related ones (120+ patterns); init checkpoint with file list
-3. **Summarize README** — LLM summarizes README for security context
-4. **Analyze Files** — Per-file:
+2. **Discover Files + Summarize README** (parallel) — Scan for Python files, filter to network-related ones (~120 patterns); LLM summarizes README for security context
+3. **Prepare Analysis** — Merge results, build system prompt, init checkpoint with file list
+4. **Analyze Files** (per-file via andForEach) —
    - Phase 1: Initial analysis for all 7 vuln types (LLMSession with prefill)
    - Phase 2: Iterative deep analysis per vuln type (up to 7 iterations)
    - Each iteration: LLM requests context → symbol resolution → feed back
    - Termination: no new context, same symbols two iterations in a row, budget limit, or escalating cost
-   - Findings with confidence ≥ threshold collected via responseToFinding()
+   - Findings with confidence >= threshold collected via responseToFinding()
    - Checkpoint updated per file; budget checked per iteration
-5. **Generate Reports** — SARIF, JSON, Markdown, HTML, CSV, cost summary; finalize checkpoint; cleanup cloned repos; disconnect MCP
+5. **Collect Findings** — Flatten results, compute statistics
+6. **Generate Reports** (parallel) — SARIF, JSON, Markdown, HTML, CSV, cost summary
+7. **Cleanup** (conditional) — Copy reports to CWD, remove cloned temp dir
+8. **Finalize** — Disconnect MCP, return WorkflowResult
 
 ## Known Limitations vs Python
 
 - Symbol finder is regex-based (no Jedi AST) — no type inference, no import resolution
 - Conversation history is simulated via prompt context blocks, not true multi-turn API
-- No CLI entry point yet (uses VoltAgent HTTP server)
 - Cost tracking estimates tokens from character count (VoltAgent doesn't expose raw usage)
+- Only 2 MCP servers available (tree-sitter, codeql packages don't exist on npm yet)

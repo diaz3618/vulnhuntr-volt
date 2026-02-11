@@ -8,81 +8,71 @@
   </p>
 </div>
 
-## 🚀 Quick Start
+An AI-powered vulnerability scanner for Python repositories, built on [VoltAgent](https://voltagent.dev). Full port of the original [VulnHuntr](https://github.com/protectai/vulnhuntr) project with enhanced cost tracking, checkpoint/resume, and multiple report formats.
+
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
-- Git
-- Anthropic API Key (optional - can configure later)
-  - Get your key at: <https://console.anthropic.com/settings/keys>
+- Anthropic API Key (recommended) or OpenAI API Key
+  - Get key at: <https://console.anthropic.com/settings/keys>
 
 ### Installation
 
 ```bash
-# Clone the repository (if not created via create-voltagent-app)
 git clone https://github.com/diaz3618/vulnhuntr-volt.git
 cd vulnhuntr-volt
-
-# Install dependencies
 npm install
-
-# Copy environment variables
 cp .env.example .env
 ```
 
-### Configuration
-
-Edit `.env` file with your API keys:
+Edit `.env`:
 
 ```env
 ANTHROPIC_API_KEY=your-api-key-here
-
-# VoltOps Platform (Optional)
-# Get your keys at https://console.voltagent.dev/tracing-setup
-# VOLTAGENT_PUBLIC_KEY=your-public-key
-# VOLTAGENT_SECRET_KEY=your-secret-key
 ```
 
-### Running the Application
+### Run a Scan
 
 ```bash
-# Development mode (with hot reload)
-npm run dev
+# Analyze a local repository
+npm run scan -- -r /path/to/python-project
 
-# Production build
-npm run build
+# Analyze a GitHub repository
+npm run scan -- -r https://github.com/owner/repo
 
-# Start production server
-npm start
+# With budget limit
+npm run scan -- -r /path/to/project -b 5.00
 ```
 
-## 🎯 Features
+See [Usage Guide](docs/usage-guide.md) for all options and examples.
 
-This VoltAgent application is a full port of [VulnHuntr](https://github.com/protectai/vulnhuntr) — an AI-powered vulnerability scanner for Python repositories:
+## Features
 
-- **7 Vulnerability Types**: LFI, RCE, SSRF, AFO, SQLI, XSS, IDOR
-- **Two-Phase Analysis**: Initial scan + iterative deep analysis with symbol resolution
-- **Claude Prefill Trick**: Forces structured JSON output from Claude models
-- **120+ Network Patterns**: Auto-detects security-relevant Python files (Flask, FastAPI, Django, Tornado, aiohttp, Starlette, Pyramid, Bottle, and many more)
-- **6 Report Formats**: SARIF, JSON, Markdown, HTML, CSV, and cost summary
-- **Cost Tracking & Budget Enforcement**: Per-file, per-iteration, and total cost limits with escalating-cost detection
-- **Checkpoint/Resume**: Gracefully handles SIGINT; resumes interrupted scans
-- **Config File Support**: `.vulnhuntr.yaml` in project root or home directory
-- **GitHub Clone & Analyze**: Accepts GitHub URLs directly
-- **MCP Integration**: Optional filesystem, ripgrep, tree-sitter, process, and CodeQL MCP servers
-- **Webhook Notifications**: Slack, Discord, Microsoft Teams, and generic JSON with HMAC-SHA256 signing
-- **GitHub Issues Integration**: Auto-create issues with duplicate detection
+**Security Analysis:**
+- 7 Vulnerability Types: LFI, RCE, SSRF, AFO, SQLI, XSS, IDOR
+- Two-Phase Analysis: Initial scan + iterative deep analysis with symbol resolution
+- 120+ Network Patterns: Auto-detects security-relevant Python files
+- Multiple LLM Providers: Anthropic Claude, OpenAI GPT, Ollama (local)
 
-### How It Works
+**Cost Management:**
+- Real-time cost tracking with per-file, per-iteration, and total limits
+- Budget enforcement with escalating-cost detection
+- Dry-run mode for cost-free preview
+- Detailed cost reports with token usage breakdown
 
-1. **Repository Setup** — Clone GitHub repos or use local paths
-2. **File Discovery** — Scan for Python files, filter to network-related ones using 120+ regex patterns
-3. **README Summarization** — LLM summarizes the README for security context
-4. **Per-File Analysis**:
-   - **Phase 1**: Initial analysis across all 7 vuln types simultaneously
-   - **Phase 2**: Iterative deep analysis per vuln type with symbol resolution (up to 7 iterations)
-5. **Report Generation** — Writes SARIF, JSON, Markdown, HTML, CSV reports + cost log
+**Reporting & Integration:**
+- 6 Report Formats: SARIF, JSON, Markdown, HTML, CSV, Cost Summary
+- GitHub Security Tab integration (SARIF upload)
+- GitHub Issues auto-creation with duplicate detection
+- Webhook notifications: Slack, Discord, MS Teams
+
+**Development Features:**
+- Checkpoint/Resume: Gracefully handles interruptions
+- MCP Integration: Optional filesystem, ripgrep, tree-sitter, process, CodeQL servers
+- Configuration: `.vulnhuntr.yaml` or environment variables
+- CLI and REST API interfaces
 
 ### Supported Vulnerability Types
 
@@ -96,7 +86,7 @@ This VoltAgent application is a full port of [VulnHuntr](https://github.com/prot
 | XSS | CWE-79 | Cross-Site Scripting |
 | IDOR | CWE-639 | Insecure Direct Object Reference |
 
-## 🤖 Agent Orchestration System
+## Agent Orchestration System
 
 This workspace includes an **intelligent agent orchestration system** for GitHub Copilot that prevents context flooding:
 
@@ -122,7 +112,7 @@ This workspace includes an **intelligent agent orchestration system** for GitHub
 
 **Learn More**: [.agents/README.md](.agents/README.md)
 
-## 🔍 VoltOps Platform
+## VoltOps Platform
 
 ### Local Development
 
@@ -134,10 +124,10 @@ The VoltOps Platform provides real-time observability for your agents during dev
 
 Features:
 
-- 🔍 Real-time execution visualization
-- 🐛 Step-by-step debugging
-- 📊 Performance insights
-- 💾 No data leaves your machine
+- Real-time execution visualization
+- Step-by-step debugging
+- Performance insights
+- No data leaves your machine
 
 ### Production Monitoring
 
@@ -154,267 +144,56 @@ For production environments, configure VoltOpsClient:
 
 4. **Configure in code**: The template already includes VoltOpsClient setup!
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 vulnhuntr-volt/
 ├── src/
 │   ├── index.ts              # Main agent + VoltAgent configuration
-│   ├── schemas/              # Zod schemas (VulnType, Finding, Response)
-│   │   └── index.ts
-│   ├── prompts/              # All 7 vuln-specific prompt templates
-│   │   └── index.ts
-│   ├── workflows/            # Workflow definitions
-│   │   ├── index.ts          # Re-exports
-│   │   └── vulnhuntr.ts     # 5-step analysis workflow chain
-│   ├── tools/                # VoltAgent tools
-│   │   ├── index.ts          # Tool exports
-│   │   ├── repo.ts           # File discovery, network pattern matching
-│   │   ├── github.ts         # GitHub clone + URL parsing
-│   │   └── symbol-finder.ts  # Symbol resolution (regex-based)
-│   ├── reporters/            # Report generators
-│   │   └── index.ts          # SARIF, JSON, Markdown, HTML, CSV
-│   ├── llm/                  # LLM abstraction layer
-│   │   └── index.ts          # Claude prefill, JSON fixing, sessions
+│   ├── workflows/            # Analysis workflow chain
+│   ├── tools/                # GitHub, repo, symbol-finder tools
+│   ├── prompts/              # Vulnerability-specific prompts
+│   ├── reporters/            # SARIF, JSON, Markdown, HTML, CSV
+│   ├── llm/                  # LLM provider abstraction
 │   ├── cost-tracker/         # Cost tracking & budget enforcement
-│   │   └── index.ts          # CostTracker, BudgetEnforcer, estimation
 │   ├── config/               # Configuration file support
-│   │   └── index.ts          # .vulnhuntr.yaml loading & merging
 │   ├── checkpoint/           # Checkpoint/resume system
-│   │   └── index.ts          # AnalysisCheckpoint, SIGINT handler
-│   ├── integrations/         # External integrations
-│   │   ├── github-issues.ts  # GitHub Issues with duplicate detection
-│   │   └── webhook.ts        # Webhook notifications (Slack/Discord/Teams)
+│   ├── integrations/         # GitHub issues & webhooks
 │   └── mcp/                  # MCP server integration
-│       └── index.ts          # 5 MCP servers configuration
-├── repos/
-│   └── vulnhuntr/            # Original Python vulnhuntr (reference)
-├── dist/                     # Compiled output (after build)
-├── .agents/                  # Copilot agent orchestration system
-├── .env                      # Environment variables
-├── .voltagent/               # Agent memory storage
-├── Dockerfile                # Production deployment
-├── package.json
-└── tsconfig.json
+├── repos/vulnhuntr/          # Original Python implementation (reference)
+├── docs/                     # Documentation
+├── .agents/                  # Copilot agent orchestration
+└── .voltagent/               # Agent memory storage
 ```
 
-## 🧪 Usage
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
 
-### CLI (Command Line Interface)
+## Documentation
 
-The fastest way to scan a repository:
+- [Usage Guide](docs/usage-guide.md) - CLI, REST API, and workflow examples
+- [Configuration](docs/configuration.md) - Environment variables, config files, LLM setup
+- [Deployment](docs/deployment.md) - Docker, CI/CD, Kubernetes, production setup
+- [Development](docs/development.md) - Creating custom tools, workflows, reporters
+- [Workflow Examples](docs/workflow-examples.md) - Comprehensive workflow execution examples
+- [Architecture](docs/ARCHITECTURE.md) - System design and technical details
 
-```bash
-# Analyze a local repository
-npm run scan -- -r /path/to/python-project
-
-# Analyze a GitHub repository
-npm run scan -- -r https://github.com/owner/repo
-
-# Analyze a specific file with OpenAI
-npm run scan -- -r /path/to/project -a src/api/server.py -l openai
-
-# Scan for specific vulnerability types with budget limit
-npm run scan -- -r /path/to/project -v LFI -v RCE -b 5.00
-
-# Full options
-npm run vulnhuntr -- --help
-```
-
-**CLI Options:**
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-r, --root` | Local path or GitHub URL (required) | - |
-| `-a, --analyze` | Specific file/directory to analyze | entire repo |
-| `-l, --llm` | LLM provider: anthropic, openai, ollama | anthropic |
-| `-m, --model` | Specific model name | claude-sonnet-4 |
-| `-b, --budget` | Maximum budget in USD | unlimited |
-| `-c, --confidence` | Minimum confidence threshold (0-10) | 5 |
-| `-i, --iterations` | Max secondary analysis iterations | 7 |
-| `-v, --vuln` | Vulnerability types to scan (repeatable) | all |
-
-### REST API (VoltAgent Server)
-
-Start the server and trigger workflows via HTTP:
-
-```bash
-# Start the VoltAgent server
-npm run dev:server
-
-# Server runs at http://localhost:3141
-```
-
-**Execute Workflow:**
-
-```bash
-curl -X POST http://localhost:3141/workflows/vulnhuntr-analysis/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "repo_path": "/path/to/python-project",
-      "provider": "anthropic",
-      "min_confidence": 5
-    }
-  }'
-```
-
-**Stream Workflow (SSE):**
-
-```bash
-curl -N -X POST http://localhost:3141/workflows/vulnhuntr-analysis/stream \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "repo_path": "https://github.com/owner/repo",
-      "provider": "anthropic"
-    }
-  }'
-```
-
-### Workflow Input Schema
-
-```json
-{
-  "repo_path": "/path/to/python-project",
-  "provider": "anthropic",
-  "min_confidence": 5,
-  "max_iterations": 7
-}
-```
-
-### Analyze a GitHub Repository
-
-```json
-{
-  "repo_path": "https://github.com/owner/repo",
-  "provider": "anthropic",
-  "max_budget_usd": 5.0,
-  "vuln_types": ["SQLI", "XSS", "SSRF"]
-}
-```
-
-### Analyze a Specific File
-
-```json
-{
-  "repo_path": "/path/to/project",
-  "analyze_path": "src/api/views.py",
-  "provider": "openai",
-  "model": "gpt-4o"
-}
-```
-
-### Configuration File (`.vulnhuntr.yaml`)
-
-```yaml
-cost:
-  budget: 10.0
-  checkpoint: true
-llm:
-  provider: claude
-analysis:
-  vuln_types: []
-  exclude_paths: [tests/, docs/, venv/]
-  max_iterations: 7
-  confidence_threshold: 1
-verbosity: 1
-```
-
-## 🐳 Docker Deployment
-
-Build and run with Docker:
-
-```bash
-# Build image
-docker build -t vulnhuntr-volt .
-
-# Run container
-docker run -p 3141:3141 --env-file .env vulnhuntr-volt
-
-# Or use docker-compose
-docker-compose up
-```
-
-## 🛠️ Development
-
-### Available Scripts
-
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build for production
-- `npm start` - Run production build
-- `npm run volt` - VoltAgent CLI tools
-
-### Adding Custom Tools
-
-Create new tools in `src/tools/`:
-
-```typescript
-import { createTool } from '@voltagent/core';
-import { z } from 'zod';
-
-export const myTool = createTool({
-  name: 'myTool',
-  description: 'Description of what this tool does',
-  input: z.object({
-    param: z.string(),
-  }),
-  output: z.string(),
-  handler: async ({ param }) => {
-    // Tool logic here
-    return `Result: ${param}`;
-  },
-});
-```
-
-### Creating New Workflows
-
-Add workflows in `src/workflows/`:
-
-```typescript
-import { createWorkflowChain } from '@voltagent/core';
-import { z } from 'zod';
-
-export const myWorkflow = createWorkflowChain({
-  id: "my-workflow",
-  name: "My Custom Workflow",
-  purpose: "Description of what this workflow does",
-  input: z.object({
-    data: z.string(),
-  }),
-  result: z.object({
-    output: z.string(),
-  }),
-})
-  .andThen({
-    id: "process-data",
-    execute: async ({ data }) => {
-      // Process the input
-      const processed = data.toUpperCase();
-      return { processed };
-    },
-  })
-  .andThen({
-    id: "final-step",
-    execute: async ({ data }) => {
-      // Final transformation
-      return { output: `Result: ${data.processed}` };
-    },
-  });
-```
-
-## 📚 Resources
+## Resources
 
 - **Documentation**: [voltagent.dev/docs](https://voltagent.dev/docs/)
 - **Examples**: [github.com/VoltAgent/voltagent/tree/main/examples](https://github.com/VoltAgent/voltagent/tree/main/examples)
 - **Discord**: [Join our community](https://s.voltagent.dev/discord)
 - **Blog**: [voltagent.dev/](https://voltagent.dev/blog/)
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see the [Development Guide](docs/development.md) for details on:
 
-## 📄 License
+- Setting up development environment
+- Creating custom tools and workflows
+- Running tests
+- Pull request process
+
+## License
 
 MIT License - see LICENSE file for details
 

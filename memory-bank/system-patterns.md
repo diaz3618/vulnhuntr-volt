@@ -155,6 +155,39 @@ start(repo, files, model, costTracker) → per file: setCurrentFile() → markFi
 ### BudgetEnforcer Heuristic
 Checks: total budget, per-file budget (total/remaining), escalating cost (>2× average prior).
 
+## Test Patterns
+
+### One Test File Per Source Module
+Each source module (e.g. `src/llm/index.ts`) has a corresponding test file (`tests/llm.test.ts`). This keeps tests focused, makes failures easy to locate, and allows running a single module's tests in isolation.
+
+### Shared Test Fixtures (`tests/fixtures.ts`)
+Factory functions provide reusable test data with sensible defaults and optional overrides:
+```typescript
+makeFinding(overrides?)      // Finding with defaults (LFI, confidence 8, severity HIGH)
+makeWorkflowResult(overrides?) // WorkflowResult with summary stats
+makeTempDir()                // os.tmpdir()-based isolated directory
+cleanTempDir(dir)            // rm -rf cleanup
+```
+
+### Temp Directory Pattern (filesystem tests)
+Tests that touch the filesystem (repo, checkpoint, symbol-finder, config) create isolated temp directories in `beforeAll`/`beforeEach` and clean up in `afterAll`/`afterEach`:
+```typescript
+let tmpDir: string;
+beforeAll(() => { tmpDir = makeTempDir(); /* populate files */ });
+afterAll(() => { cleanTempDir(tmpDir); });
+```
+
+### Workflow E2E Test Pattern (mocked externals)
+`tests/workflow.test.ts` exercises the full VoltAgent workflow chain with all external dependencies mocked:
+- `vi.mock()` for: Agent, fs, github tools, repo tools, symbol-finder, MCP, reporters, config, checkpoint, cost-tracker, LLM, prompts
+- vitest v4 constructor mocks use regular functions (not arrows) because `new` is called on the mock implementation
+- Partial mock of `@voltagent/core` keeps `createWorkflowChain` real while mocking `Agent`
+
+### vitest Configuration
+- Config in `vitest.config.ts`: glob `tests/**/*.test.ts`, pool `"forks"` for isolation
+- Alias: `.js` imports resolved to `.ts` source files (ESM compat)
+- Coverage: v8 provider
+
 ## API Constraints (Critical)
 
 | Constraint | Correct | Wrong |
@@ -170,6 +203,7 @@ Checks: total budget, per-file budget (total/remaining), escalating cost (>2× a
 ```
 src/
 ├── index.ts              # Entry point + VoltAgent server
+├── cli.ts                # CLI entry point (direct workflow execution)
 ├── schemas/index.ts      # Types, enums, Zod schemas
 ├── prompts/index.ts      # All vulnerability prompt templates
 ├── workflows/
@@ -189,4 +223,17 @@ src/
 │   ├── github-issues.ts  # GitHub issue creation
 │   └── webhook.ts        # Webhook notifications
 └── mcp/index.ts          # MCP server configurations
+tests/
+├── fixtures.ts           # Shared factories (makeFinding, makeWorkflowResult, makeTempDir)
+├── llm.test.ts           # fixJsonResponse, detectProvider
+├── schemas.test.ts       # Zod validation, responseToFinding, CWE mappings
+├── prompts.test.ts       # XML builders, compound prompts, bypass data
+├── github.test.ts        # parseGitHubUrl, isGitHubPath
+├── reporters.test.ts     # All 5 report generators, sorting, escaping
+├── cost-tracker.test.ts  # CostTracker, BudgetEnforcer, getModelPricing
+├── config.test.ts        # configFromDict, mergeConfigWithInput, loadConfig
+├── symbol-finder.test.ts # extractSymbol, extractDefinitionBlock
+├── repo.test.ts          # getPythonFiles, isNetworkRelated, getReadmeContent
+├── checkpoint.test.ts    # AnalysisCheckpoint full lifecycle
+└── workflow.test.ts      # Full workflow chain e2e (mocked LLM/fs/MCP)
 ```

@@ -1,0 +1,4 @@
+{
+    "repo_path": "/path/to/my-python-project",
+    "provider": "anthropic"
+}

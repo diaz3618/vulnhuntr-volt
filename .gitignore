@@ -160,3 +160,8 @@ dist
 /repos
 /internal
 /.vulnhuntr-reports/*
+.clinerules*
+.github
+.cursor
+.agents
+.claude

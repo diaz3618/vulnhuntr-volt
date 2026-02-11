@@ -1,0 +1,16 @@
+{
+    "repo_path": "https://github.com/org/secure-api",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "analyze_path": "src/controllers",
+    "max_budget_usd": 25.0,
+    "min_confidence": 7,
+    "max_iterations": 12,
+    "vuln_types": [
+        "SQLI",
+        "XSS",
+        "SSRF",
+        "IDOR"
+    ],
+    "dry_run": false
+}

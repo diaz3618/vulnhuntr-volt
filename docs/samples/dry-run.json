@@ -1,0 +1,5 @@
+{
+    "repo_path": "./my-project",
+    "provider": "anthropic",
+    "dry_run": true
+}
