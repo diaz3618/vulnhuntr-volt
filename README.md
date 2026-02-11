@@ -156,7 +156,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentat
 
 - [Usage Guide](docs/usage-guide.md) - CLI, REST API, and workflow examples
 - [Configuration](docs/configuration.md) - Environment variables, config files, LLM setup
-- [Deployment](docs/deployment.md) - Docker, CI/CD, Kubernetes, production setup
+- [Deployment](docs/deployment.md) - Docker, CI/CD, production setup
 - [Development](docs/development.md) - Creating custom tools, workflows, reporters
 - [Workflow Examples](docs/workflow-examples.md) - Comprehensive workflow execution examples
 - [Architecture](docs/ARCHITECTURE.md) - System design and technical details

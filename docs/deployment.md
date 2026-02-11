@@ -8,7 +8,6 @@ This guide covers deploying VulnHuntr-Volt in various environments for productio
 - [Docker Compose](#docker-compose)
 - [CI/CD Integration](#cicd-integration)
 - [GitHub Actions](#github-actions)
-- [Kubernetes](#kubernetes)
 - [Production Considerations](#production-considerations)
 
 ## Docker Deployment
@@ -150,6 +149,8 @@ docker-compose exec ollama ollama pull llama3.1:70b
 
 ## CI/CD Integration
 
+<u>**BE CAREFUL, These can be a VERY expensive.**</u>
+
 ### GitHub Actions
 
 Create `.github/workflows/security-scan.yml`:
@@ -177,17 +178,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t vulnhuntr-volt:latest .
-
-      - name: Run VulnHuntr-Volt scan
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
-            -v ${{ github.workspace }}/.vulnhuntr-reports:/app/.vulnhuntr-reports \
-            -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
-            vulnhuntr-volt:latest \
-            npm run scan -- -r /workspace -b 10.0 -c 7
+      - name: Run VulnHuntr-Volt
+        uses: docker://ghcr.io/diaz3618/vulnhuntr-volt:latest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          args: npm run scan -- -r /github/workspace -b 10.0 -c 7
 
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
@@ -245,127 +241,6 @@ vulnhuntr-scan:
     - merge_requests
 ```
 
-### Jenkins
-
-Create `Jenkinsfile`:
-
-```groovy
-pipeline {
-    agent any
-    
-    environment {
-        ANTHROPIC_API_KEY = credentials('anthropic-api-key')
-    }
-    
-    stages {
-        stage('Build') {
-            steps {
-                sh 'docker build -t vulnhuntr-volt:${BUILD_NUMBER} .'
-            }
-        }
-        
-        stage('Security Scan') {
-            steps {
-                sh '''
-                    docker run --rm \
-                        -v ${WORKSPACE}:/workspace \
-                        -v ${WORKSPACE}/reports:/app/.vulnhuntr-reports \
-                        -e ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY} \
-                        vulnhuntr-volt:${BUILD_NUMBER} \
-                        npm run scan -- -r /workspace -b 10.0 -c 7
-                '''
-            }
-        }
-        
-        stage('Publish Reports') {
-            steps {
-                publishHTML([
-                    reportDir: 'reports',
-                    reportFiles: 'report-*.html',
-                    reportName: 'VulnHuntr Security Report'
-                ])
-                
-                archiveArtifacts artifacts: 'reports/**/*', fingerprint: true
-            }
-        }
-    }
-    
-    post {
-        always {
-            cleanWs()
-        }
-    }
-}
-```
-
-### Publishing Docker Image to GHCR (Optional)
-
-If you want to build and publish the Docker image to GitHub Container Registry for reuse:
-
-Create `.github/workflows/docker-publish.yml`:
-
-```yaml
-name: Build and Publish Docker Image
-
-on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  workflow_dispatch:
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-```
-
-After this workflow runs, you can use the published image in other workflows:
-
-```yaml
-- name: Run VulnHuntr-Volt (pre-built image)
-  uses: docker://ghcr.io/diaz3618/vulnhuntr-volt:main
-  env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-  with:
-    args: npm run scan -- -r /github/workspace -b 10.0
-```
-
 ## GitHub Actions (Webhook Integration)
 
 ### Setup Webhook Server
@@ -408,154 +283,6 @@ The server automatically:
 - Posts results to Pull Request
 - Creates issues for findings
 - Uploads SARIF to Security Tab
-
-## Kubernetes
-
-### Basic Deployment
-
-Create `k8s/deployment.yaml`:
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: vulnhuntr-volt
-  namespace: security
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: vulnhuntr-volt
-  template:
-    metadata:
-      labels:
-        app: vulnhuntr-volt
-    spec:
-      containers:
-      - name: vulnhuntr
-        image: vulnhuntr-volt:latest
-        ports:
-        - containerPort: 3141
-        env:
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: vulnhuntr-secrets
-              key: anthropic-api-key
-        - name: VOLT_PORT
-          value: "3141"
-        volumeMounts:
-        - name: reports
-          mountPath: /app/.vulnhuntr-reports
-        resources:
-          requests:
-            memory: "2Gi"
-            cpu: "1000m"
-          limits:
-            memory: "4Gi"
-            cpu: "2000m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3141
-          initialDelaySeconds: 30
-          periodSeconds: 30
-      volumes:
-      - name: reports
-        persistentVolumeClaim:
-          claimName: vulnhuntr-reports-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: vulnhuntr-volt
-  namespace: security
-spec:
-  selector:
-    app: vulnhuntr-volt
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 3141
-  type: LoadBalancer
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: vulnhuntr-reports-pvc
-  namespace: security
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-```
-
-Create secrets:
-
-```bash
-kubectl create namespace security
-kubectl create secret generic vulnhuntr-secrets \
-  --from-literal=anthropic-api-key=$ANTHROPIC_API_KEY \
-  --namespace security
-```
-
-Deploy:
-
-```bash
-kubectl apply -f k8s/deployment.yaml
-```
-
-### CronJob for Scheduled Scans
-
-Create `k8s/cronjob.yaml`:
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: vulnhuntr-scheduled-scan
-  namespace: security
-spec:
-  schedule: "0 2 * * 1"  # Every Monday at 2 AM
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: vulnhuntr
-            image: vulnhuntr-volt:latest
-            args:
-            - npm
-            - run
-            - scan
-            - --
-            - -r
-            - /workspace
-            - -b
-            - "10.0"
-            env:
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: vulnhuntr-secrets
-                  key: anthropic-api-key
-            volumeMounts:
-            - name: workspace
-              mountPath: /workspace
-              readOnly: true
-            - name: reports
-              mountPath: /app/.vulnhuntr-reports
-          restartPolicy: OnFailure
-          volumes:
-          - name: workspace
-            persistentVolumeClaim:
-              claimName: code-repo-pvc
-          - name: reports
-            persistentVolumeClaim:
-              claimName: vulnhuntr-reports-pvc
-```
 
 ## Production Considerations
 
