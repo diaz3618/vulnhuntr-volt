@@ -161,7 +161,8 @@ dist
 /internal
 /.vulnhuntr-reports/*
 .clinerules*
-.github
+.github/*
+!.github/workflows/
 .cursor
 .agents
 .claude
