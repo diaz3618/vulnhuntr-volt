@@ -177,12 +177,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run VulnHuntr-Volt
-        uses: docker://ghcr.io/diaz3618/vulnhuntr-volt:latest
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        with:
-          args: npm run scan -- -r /github/workspace -b 10.0 -c 7
+      - name: Build Docker image
+        run: docker build -t vulnhuntr-volt:latest .
+
+      - name: Run VulnHuntr-Volt scan
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -v ${{ github.workspace }}/.vulnhuntr-reports:/app/.vulnhuntr-reports \
+            -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
+            vulnhuntr-volt:latest \
+            npm run scan -- -r /workspace -b 10.0 -c 7
 
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
@@ -291,6 +296,74 @@ pipeline {
         }
     }
 }
+```
+
+### Publishing Docker Image to GHCR (Optional)
+
+If you want to build and publish the Docker image to GitHub Container Registry for reuse:
+
+Create `.github/workflows/docker-publish.yml`:
+
+```yaml
+name: Build and Publish Docker Image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+```
+
+After this workflow runs, you can use the published image in other workflows:
+
+```yaml
+- name: Run VulnHuntr-Volt (pre-built image)
+  uses: docker://ghcr.io/diaz3618/vulnhuntr-volt:main
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  with:
+    args: npm run scan -- -r /github/workspace -b 10.0
 ```
 
 ## GitHub Actions (Webhook Integration)
