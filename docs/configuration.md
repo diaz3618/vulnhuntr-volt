@@ -110,6 +110,7 @@ DEFAULT_MODEL=claude-sonnet-4
 ```
 
 Supported models:
+
 - `claude-sonnet-4` (recommended)
 - `claude-3-7-sonnet-20250219`
 - `claude-3-5-sonnet-20241022`
@@ -125,6 +126,7 @@ DEFAULT_MODEL=gpt-4o
 ```
 
 Supported models:
+
 - `gpt-4o` (recommended)
 - `gpt-4-turbo`
 - `gpt-4`
@@ -140,6 +142,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 No API key required. Supported models:
+
 - `llama3.1:70b` (recommended)
 - `llama3.1:8b`
 - `codellama:34b`
@@ -164,6 +167,7 @@ npm run scan -- -r ./project -c 7
 ```
 
 **Recommended values:**
+
 - `5` - Balanced (default)
 - `7` - High confidence only
 - `3` - Include lower confidence findings
@@ -185,6 +189,7 @@ npm run scan -- -r ./project -i 10
 ```
 
 **Recommended values:**
+
 - `7` - Default (good balance)
 - `3-5` - Quick scan
 - `10-15` - Deep analysis
@@ -225,6 +230,7 @@ npm run scan -- -r ./project -b 10.00
 ```
 
 When the budget is reached:
+
 - Analysis stops immediately
 - A partial report is generated
 - Cost breakdown shows actual usage
@@ -243,6 +249,7 @@ VulnHuntr-Volt tracks costs in real-time:
 ```
 
 Cost reports include:
+
 - Input/output tokens per LLM call
 - Cost per call in USD
 - Total tokens and cost
@@ -264,6 +271,7 @@ npm run scan -- -r ./project --dry-run
 ```
 
 Dry-run shows:
+
 - Repository structure
 - Files to be analyzed
 - Estimated token usage
@@ -299,6 +307,7 @@ Enable/disable specific report formats:
 ```
 
 Available formats:
+
 - `json` - Machine-readable findings
 - `sarif` - GitHub Security Tab format
 - `markdown` - Human-readable summary
@@ -344,6 +353,7 @@ GITHUB_WEBHOOK_SECRET=your_webhook_secret
 ```
 
 When enabled, VulnHuntr-Volt:
+
 - Creates GitHub issues for each high-confidence finding
 - Updates existing issues when re-scanning
 - Applies labels and assigns team members

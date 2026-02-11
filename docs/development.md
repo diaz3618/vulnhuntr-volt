@@ -75,8 +75,7 @@ vulnhuntr-volt/
 │   ├── checkpoint/           # State management
 │   └── integrations/         # External integrations
 ├── tests/                    # Test files
-├── docs/                     # Documentation
-└── repos/vulnhuntr/          # Original Python implementation
+└── docs/                     # Documentation
 ```
 
 ### Key Files

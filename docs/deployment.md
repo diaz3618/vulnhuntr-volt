@@ -328,6 +328,7 @@ services:
 ### Webhook Handler
 
 The server automatically:
+
 - Receives push/PR events
 - Clones the repository
 - Runs vulnerability analysis

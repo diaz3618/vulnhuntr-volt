@@ -1,465 +1,464 @@
-# Agent Orchestration System Architecture
+# VulnHuntr-Volt Architecture
 
-## System Diagram
+## System Overview
+
+VulnHuntr-Volt is an AI-powered vulnerability scanner built on the VoltAgent framework. It performs static analysis of Python codebases to detect security vulnerabilities using large language models (LLMs).
+
+## Architecture Diagram
 
 ```mermaid
 graph TB
-    User[👤 User asks question in VS Code]
-    User --> Copilot[🤖 GitHub Copilot]
+    User[User] --> CLI[CLI Interface]
+    User --> API[REST API Server]
     
-    Copilot --> Orchestrator[📋 Main Orchestrator<br/>.agents/SKILL.md]
+    CLI --> WorkflowEngine[VoltAgent Workflow Engine]
+    API --> WorkflowEngine
     
-    Orchestrator --> Analysis{Analyze Domain}
+    WorkflowEngine --> RepoTools[Repository Tools]
+    WorkflowEngine --> LLMProvider[LLM Provider Layer]
+    WorkflowEngine --> CostTracker[Cost Tracker]
     
-    Analysis -->|VoltAgent/Agents/Tools| VoltDev[⚡ VoltAgent Dev<br/>voltagent-dev.md]
-    Analysis -->|Skills/Examples/Patterns| VoltDocs[📚 VoltAgent Docs<br/>voltagent-docs.md]
-    Analysis -->|TypeScript/Node/Build| TSDev[📘 TypeScript Dev<br/>typescript-dev.md]
-    Analysis -->|Commits/Branches/Tags| GitOps[🌿 Git Operations<br/>git-ops.md]
-    Analysis -->|Docker/Deploy/CI| Infra[🐳 Infrastructure<br/>infrastructure.md]
-    Analysis -->|Python/Vuln Scanner| Vulnhuntr[🔒 Vulnhuntr<br/>repos/vulnhuntr/SKILL.md]
+    RepoTools --> GitHub[GitHub Clone]
+    RepoTools --> FileDiscovery[File Discovery]
+    RepoTools --> SymbolFinder[Symbol Finder]
     
-    VoltDev --> Research[🔍 Research Codebase]
-    VoltDocs --> Research
-    TSDev --> Research
-    GitOps --> Research
-    Infra --> Research
-    Vulnhuntr --> Research
+    LLMProvider --> Anthropic[Anthropic Claude]
+    LLMProvider --> OpenAI[OpenAI GPT]
+    LLMProvider --> Ollama[Ollama Local]
     
-    Research --> CodeSearch[Search src/]
-    Research --> SkillsSearch[Check .agents/skills/]
-    Research --> DocsSearch[Read documentation]
+    WorkflowEngine --> Reporters[Report Generators]
+    Reporters --> SARIF[SARIF Format]
+    Reporters --> JSON[JSON Format]
+    Reporters --> Markdown[Markdown Format]
+    Reporters --> HTML[HTML Format]
+    Reporters --> CSV[CSV Format]
     
-    CodeSearch --> Response[✅ Accurate Response]
-    SkillsSearch --> Response
-    DocsSearch --> Response
+    WorkflowEngine --> Integrations[Integrations]
+    Integrations --> GitHubIssues[GitHub Issues]
+    Integrations --> Webhooks[Webhooks]
     
-    Response --> User
-    
-    style Orchestrator fill:#e1f5ff,stroke:#01579b,stroke-width:3px
-    style VoltDev fill:#fff3e0,stroke:#e65100
-    style VoltDocs fill:#f3e5f5,stroke:#4a148c
-    style TSDev fill:#e8f5e9,stroke:#1b5e20
-    style GitOps fill:#fce4ec,stroke:#880e4f
-    style Infra fill:#e0f2f1,stroke:#004d40
-    style Vulnhuntr fill:#fff9c4,stroke:#f57f17
-    style Response fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style WorkflowEngine fill:#e1f5ff,stroke:#01579b,stroke-width:3px
+    style LLMProvider fill:#fff3e0,stroke:#e65100
+    style Reporters fill:#f3e5f5,stroke:#4a148c
 ```
 
----
+## Core Components
 
-## Information Flow
+### 1. Entry Points
 
-### Example 1: Simple Question
+#### CLI Interface
+- Command-line tool for direct repository scanning
+- Supports local paths and GitHub URLs
+- Configuration via command-line arguments
+- Script: `npm run scan`
 
-**Question**: *"How do I add a tool to my agent?"*
+#### REST API Server
+- HTTP server for workflow execution
+- Endpoints for execute and stream modes
+- JSON-based input/output
+- Runs on port 3141 by default
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Copilot
-    participant O as Orchestrator
-    participant V as VoltAgent Dev Sub-Agent
-    participant S as Codebase Search
-    
-    U->>C: "How do I add a tool?"
-    C->>O: Load SKILL.md
-    O->>O: Analyze: Domain = VoltAgent
-    O->>V: Load voltagent-dev.md
-    V->>S: Search src/tools/
-    S->>V: Return examples
-    V->>C: Tool creation pattern + code
-    C->>U: Response with examples
-    
-    Note over O,V: Only 1 sub-agent loaded (~10KB)
-    Note over U,C: Fast, accurate response
-```
+### 2. Workflow Engine
 
-### Example 2: Multi-Domain Question
-
-**Question**: *"Create an agent and containerize it with Docker"*
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Copilot
-    participant O as Orchestrator
-    participant V as VoltAgent Dev
-    participant I as Infrastructure
-    participant S as Codebase Search
-    
-    U->>C: "Create agent & containerize"
-    C->>O: Load SKILL.md
-    O->>O: Analyze: VoltAgent + Docker
-    
-    par Load Sub-Agents
-        O->>V: Load voltagent-dev.md
-        O->>I: Load infrastructure.md
-    end
-    
-    par Research
-        V->>S: Search src/agents/
-        I->>S: Search Dockerfile
-    end
-    
-    S->>V: Agent patterns
-    S->>I: Docker config
-    
-    V->>C: Agent creation code
-    I->>C: Dockerfile structure
-    
-    C->>U: Complete solution
-    
-    Note over O,I: 2 sub-agents loaded (~20KB)
-    Note over U,C: Comprehensive answer
-```
-
-### Example 3: Vulnhuntr Question
-
-**Question**: *"Fix the Python vulnerability scanner's validation"*
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Copilot
-    participant O as Main Orchestrator
-    participant Vh as Vulnhuntr SKILL.md
-    participant S as Vulnhuntr Codebase
-    
-    U->>C: "Fix vulnhuntr validation"
-    C->>O: Load .agents/SKILL.md
-    O->>O: Analyze: Vulnhuntr domain
-    O->>Vh: Delegate to repos/vulnhuntr/SKILL.md
-    Vh->>Vh: Use Vulnhuntr sub-agents
-    Vh->>S: Search vulnhuntr/ code
-    S->>Vh: Find validation code
-    Vh->>C: Solution with context
-    C->>U: Vulnhuntr-specific fix
-    
-    Note over O,Vh: Separate agent system
-    Note over Vh,S: Vulnhuntr-specific patterns
-```
-
----
-
-## Decision Tree
-
-```mermaid
-graph TD
-    Start[User Question] --> Analyze{Analyze Request}
-    
-    Analyze -->|Agent/Workflow/Tool| Q1{VoltAgent Domain?}
-    Analyze -->|Skills/Patterns| Q2{Documentation?}
-    Analyze -->|TypeScript/Build| Q3{TypeScript Domain?}
-    Analyze -->|Git/Commit/Branch| Q4{Git Domain?}
-    Analyze -->|Docker/Deploy| Q5{Infrastructure?}
-    Analyze -->|Python/Vuln| Q6{Vulnhuntr?}
-    
-    Q1 -->|Implementation| LoadVD[Load voltagent-dev.md]
-    Q2 -->|Yes| LoadDocs[Load voltagent-docs.md]
-    Q3 -->|Yes| LoadTS[Load typescript-dev.md]
-    Q4 -->|Yes| LoadGit[Load git-ops.md]
-    Q5 -->|Yes| LoadInfra[Load infrastructure.md]
-    Q6 -->|Yes| LoadVH[Load vulnhuntr/SKILL.md]
-    
-    Q1 -->|+ Documentation| Multi1[Load voltagent-dev.md<br/>+ voltagent-docs.md]
-    Q1 -->|+ Docker| Multi2[Load voltagent-dev.md<br/>+ infrastructure.md]
-    Q3 -->|+ Git| Multi3[Load typescript-dev.md<br/>+ git-ops.md]
-    
-    LoadVD --> Research[Research Codebase]
-    LoadDocs --> Research
-    LoadTS --> Research
-    LoadGit --> Research
-    LoadInfra --> Research
-    LoadVH --> Research
-    Multi1 --> Research
-    Multi2 --> Research
-    Multi3 --> Research
-    
-    Research --> Respond[Generate Response]
-    
-    style Start fill:#e3f2fd
-    style Analyze fill:#fff3e0
-    style Research fill:#f3e5f5
-    style Respond fill:#c8e6c9
-    style LoadVD fill:#ffebee
-    style LoadDocs fill:#f1f8e9
-    style LoadTS fill:#e0f2f1
-    style LoadGit fill:#fce4ec
-    style LoadInfra fill:#e8eaf6
-    style LoadVH fill:#fff9c4
-```
-
----
-
-## System Components
-
-### Layer 1: Entry Point
-
-```
-┌─────────────────────────────────┐
-│   GitHub Copilot (VS Code)      │
-│   - Loads via settings.json     │
-│   - Always includes SKILL.md    │
-└─────────────────────────────────┘
-```
-
-### Layer 2: Orchestration
-
-```
-┌─────────────────────────────────┐
-│   Main Orchestrator             │
-│   .agents/SKILL.md (~15KB)      │
-│   - Analyzes user question      │
-│   - Identifies domain(s)        │
-│   - Selects 1-3 sub-agents      │
-│   - Never loads all agents      │
-└─────────────────────────────────┘
-```
-
-### Layer 3: Specialized Sub-Agents
-
-```
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│  VoltAgent   │ │  VoltAgent   │ │  TypeScript  │
-│     Dev      │ │     Docs     │ │     Dev      │
-│   (~12KB)    │ │   (~10KB)    │ │   (~12KB)    │
-└──────────────┘ └──────────────┘ └──────────────┘
-
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│     Git      │ │Infrastructure│ │  Vulnhuntr   │
-│   Operations │ │   (~10KB)    │ │  (Separate)  │
-│    (~8KB)    │ │              │ │              │
-└──────────────┘ └──────────────┘ └──────────────┘
-```
-
-### Layer 4: Research & Verification
-
-```
-┌─────────────────────────────────────────────────┐
-│   Code Search & Verification                    │
-│   - semantic_search() - Find patterns           │
-│   - grep_search() - Find specific text          │
-│   - read_file() - Read implementation           │
-│   - file_search() - Find files                  │
-└─────────────────────────────────────────────────┘
-```
-
-### Layer 5: Knowledge Base
-
-```
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│  src/        │ │ .agents/     │ │ node_modules/│
-│  Codebase    │ │ skills/      │ │ @voltagent/  │
-│              │ │ VoltAgent    │ │ Package docs │
-└──────────────┘ └──────────────┘ └──────────────┘
-```
-
----
-
-## Context Size Comparison
-
-### Traditional Single-Agent Approach
-
-```
-User Question
-    ↓
-┌─────────────────────────────────────┐
-│  Single Large Agent (~50KB+)        │
-│  • All VoltAgent knowledge          │
-│  • All TypeScript knowledge         │
-│  • All Git knowledge                │
-│  • All Docker knowledge             │
-│  • All documentation                │
-│  ❌ Context flooding                │
-│  ❌ Slower processing               │
-│  ❌ Higher cost                     │
-└─────────────────────────────────────┘
-    ↓
-Response (slower, may be confused)
-```
-
-### Orchestrated Multi-Agent Approach
-
-```
-User Question
-    ↓
-┌─────────────────────────────────────┐
-│  Main Orchestrator (~15KB)          │
-│  • Analyzes question                │
-│  • Identifies domain                │
-│  ✅ Smart routing                   │
-└─────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────┐
-│  1-3 Relevant Sub-Agents (~10-25KB) │
-│  • Only necessary knowledge         │
-│  • Domain-specific expertise        │
-│  ✅ Focused context                 │
-│  ✅ Faster processing               │
-│  ✅ Lower cost                      │
-└─────────────────────────────────────┘
-    ↓
-Response (faster, more accurate)
-```
-
-### Savings
-
-| Metric | Traditional | Orchestrated | Improvement |
-|--------|------------|--------------|-------------|
-| **Avg Context** | 50KB+ | 15-30KB | 60-70% reduction |
-| **Simple Q** | 50KB | 15-20KB | 60-70% reduction |
-| **Complex Q** | 50KB+ | 25-35KB | 30-50% reduction |
-| **Processing** | Slower | Faster | Variable |
-| **Accuracy** | Mixed | Higher | Better focus |
-
----
-
-## Configuration Architecture
-
-### VS Code Integration
-
-```
-.vscode/settings.json
-    ↓
-{
-  "github.copilot.advanced": {
-    "contextFiles": [
-      ".agents/SKILL.md"  ← Always loaded
-    ]
-  }
-}
-    ↓
-GitHub Copilot includes orchestrator with every request
-    ↓
-Orchestrator decides which sub-agents to load
-```
-
-### File Structure
-
-```
-vulnhuntr-volt/
-├── .agents/                    ← Agent system root
-│   ├── SKILL.md               ← Main orchestrator (auto-loaded)
-│   ├── README.md              ← Full documentation
-│   ├── QUICKSTART.md          ← Quick start guide
-│   ├── ARCHITECTURE.md        ← This file
-│   ├── sub-agents/            ← Specialized agents
-│   │   ├── voltagent-dev.md
-│   │   ├── voltagent-docs.md
-│   │   ├── typescript-dev.md
-│   │   ├── git-ops.md
-│   │   └── infrastructure.md
-│   └── skills/                ← Official VoltAgent skills
-│       ├── voltagent-best-practices/
-│       ├── voltagent-docs-bundle/
-│       └── create-voltagent/
-├── .vscode/
-│   ├── settings.json          ← Copilot configuration
-│   └── mcp.json               ← MCP servers
-├── src/                       ← VoltAgent application
-├── repos/
-│   └── vulnhuntr/            ← Separate agent system
-│       └── SKILL.md          ← Vulnhuntr orchestrator
-└── [other project files]
-```
-
----
-
-## Performance Characteristics
-
-### Latency
-
-```
-┌─────────────────────────────────────────────────────┐
-│  Traditional: Copilot processing 50KB+ context      │
-│  ████████████████████████████ ~2-4s                 │
-└─────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────┐
-│  Orchestrated: Process 15KB orchestrator            │
-│  ██████████ ~0.5-1s                                 │
-│  Then load 10-20KB sub-agent                        │
-│  ████████████████ ~1-2s                             │
-│  Total: ██████████████████████ ~1.5-3s              │
-└─────────────────────────────────────────────────────┘
-```
-
-### Token Usage (Estimated)
-
-```
-Traditional Approach:
-- Context: ~50KB = ~12,500 tokens
-- Response: ~500 tokens
-- Total: ~13,000 tokens per request
-
-Orchestrated Approach:
-- Orchestrator: ~15KB = ~3,750 tokens
-- Sub-agent: ~10KB = ~2,500 tokens
-- Response: ~500 tokens
-- Total: ~6,750 tokens per request
-
-Savings: ~48% fewer tokens
-```
-
----
-
-## Scalability
-
-### Adding New Sub-Agents
+The main analysis workflow consists of 5 steps:
 
 ```mermaid
 graph LR
-    A[Create new sub-agent file] --> B[Follow template structure]
-    B --> C[Add to SKILL.md registry]
-    C --> D[Update decision tree]
-    D --> E[Test with questions]
-    E --> F[Document in README]
+    A[1. Setup Repository] --> B[2. Discover Files]
+    B --> C[3. README Summary]
+    C --> D[4. Analyze Files]
+    D --> E[5. Generate Reports]
     
-    style A fill:#e1f5ff
-    style F fill:#c8e6c9
+    style A fill:#e3f2fd
+    style B fill:#f3e5f5
+    style C fill:#fff3e0
+    style D fill:#ffebee
+    style E fill:#c8e6c9
 ```
 
-### System Limits
+**Step 1: Setup Repository**
+- Clone GitHub repos or validate local paths
+- Apply configuration from `.vulnhuntr.yaml` or environment variables
+- Initialize cost tracking and checkpoints
 
-- **Sub-Agents**: Recommended 5-10 max
-- **Context Per Request**: Target 15-30KB total
-- **Agents Loaded**: 1-3 per request max
-- **File Size**: Keep sub-agents under 15KB each
+**Step 2: Discover Files**
+- Scan for Python files (`.py` extension)
+- Filter using 120+ network-related regex patterns
+- Identify Flask, FastAPI, Django, aiohttp, Starlette, etc.
+- Support for targeted analysis of specific files/directories
 
----
+**Step 3: README Summarization**
+- LLM analyzes repository README for security context
+- Provides high-level understanding of application purpose
+- Identifies potential attack surfaces
 
-## Maintenance Architecture
+**Step 4: Analyze Files**
+- **Phase 1 (Initial Analysis)**: Analyze all 7 vulnerability types simultaneously per file
+- **Phase 2 (Deep Analysis)**: Iterative analysis with symbol resolution
+  - Up to 7 iterations by default
+  - Symbol finder resolves function definitions and imports
+  - Confidence scoring (0-10 scale)
+  - Budget enforcement at each step
 
-### Update Frequency
+**Step 5: Generate Reports**
+- Multiple output formats generated simultaneously
+- SARIF for GitHub Security integration
+- JSON for machine processing
+- Markdown and HTML for human review
+- CSV for spreadsheet analysis
+- Cost report with token usage breakdown
 
+### 3. LLM Provider Layer
+
+**Architecture:**
+```typescript
+interface LLMProvider {
+  generate(prompt: string, options: GenerateOptions): Promise<Response>
+  estimateCost(prompt: string): Cost
+}
 ```
-Main Orchestrator (SKILL.md)
-├── Weekly: Review delegation logic
-├── Monthly: Update sub-agent registry
-└── As needed: Add new routing rules
 
-Sub-Agents
-├── Weekly: Update with new patterns
-├── Sprint: Sync with codebase changes
-└── As needed: Fix outdated information
+**Supported Providers:**
+- **Anthropic Claude** (Recommended): claude-sonnet-4, claude-3-7-sonnet-20250219
+- **OpenAI GPT**: gpt-4o, gpt-4-turbo, gpt-3.5-turbo
+- **Ollama Local**: llama3.1:70b, codellama:34b (no API key required)
 
-Skills (Official)
-├── Monthly: Run `npx skills add VoltAgent/skills`
-└── Version updates: Check for new skills
+**Features:**
+- Provider-agnostic interface
+- Automatic JSON response fixing
+- Claude prefill trick for structured output
+- Token counting and cost estimation
+- Timeout and retry handling
+
+### 4. Cost Tracking System
+
+**Real-time Budget Enforcement:**
+
+```mermaid
+graph TD
+    A[Start Analysis] --> B{Check Budget}
+    B -->|Within Budget| C[Make LLM Call]
+    B -->|Exceeded| D[Stop & Report]
+    C --> E[Track Tokens]
+    E --> F[Calculate Cost]
+    F --> G{Budget OK?}
+    G -->|Yes| H[Continue]
+    G -->|No| D
+    H --> B
+    
+    style A fill:#e3f2fd
+    style D fill:#ffebee
+    style H fill:#c8e6c9
 ```
 
----
+**Cost Tracking Levels:**
+- Per-call cost tracking
+- Per-file cost accumulation
+- Per-iteration budget limits
+- Total scan budget enforcement
+- Escalating cost detection (warns if costs spike)
+
+### 5. Checkpoint and Resume System
+
+**State Management:**
+- Automatic checkpoint creation on SIGINT (Ctrl+C)
+- Saves analysis progress to `.vulnhuntr-checkpoint.json`
+- Resume capability for interrupted scans
+- Preserves findings, file state, and cost data
+
+**Checkpoint Data:**
+```json
+{
+  "timestamp": "2026-02-10T...",
+  "repo_path": "/path/to/repo",
+  "files_analyzed": ["file1.py", "file2.py"],
+  "findings": [...],
+  "cost_data": {...},
+  "next_file_index": 3
+}
+```
+
+### 6. Report Generators
+
+**Multi-Format Output:**
+
+| Format | Purpose | Use Case |
+|--------|---------|----------|
+| **SARIF** | GitHub Security Tab | CI/CD integration |
+| **JSON** | Machine processing | Automation, APIs |
+| **Markdown** | Human-readable | Documentation |
+| **HTML** | Interactive web view | Stakeholder review |
+| **CSV** | Spreadsheet analysis | Tracking, metrics |
+| **Cost Report** | Budget tracking | Financial planning |
+
+**Report Content:**
+- Vulnerability findings with confidence scores
+- CWE mappings and severity levels
+- Code snippets and line numbers
+- Fix suggestions and references
+- Cost breakdown by file and iteration
+
+### 7. Tool System
+
+VoltAgent tools provide modular functionality:
+
+#### Repository Tools (`src/tools/repo.ts`)
+- **discoverFiles**: Find Python files with network patterns
+- **readFile**: Read file contents
+- **analyzeDirectory**: Recursive directory scanning
+
+#### GitHub Tools (`src/tools/github.ts`)
+- **cloneRepository**: Clone GitHub repos via URL
+- **parseGitHubUrl**: Extract owner/repo from URL
+- **validateAccess**: Check repository accessibility
+
+#### Symbol Finder (`src/tools/symbol-finder.ts`)
+- **findSymbol**: Locate function/class definitions
+- **resolveImports**: Trace import chains
+- **getContext**: Extract surrounding code context
+
+### 8. Integration Layer
+
+#### GitHub Issues Integration
+- Automatic issue creation for high-confidence findings
+- Duplicate detection to prevent spam
+- Configurable confidence threshold
+- Labels and assignee management
+
+#### Webhook Notifications
+- Support for Slack, Discord, MS Teams
+- Generic JSON webhook with HMAC-SHA256 signing
+- Configurable per finding or summary
+- Error/success notifications
+
+#### MCP (Model Context Protocol) Servers
+- Filesystem: File operations
+- Ripgrep: Fast text search
+- Tree-sitter: Code parsing
+- Process: System commands
+- CodeQL: Advanced code analysis (optional)
+
+## Data Flow
+
+### Complete Scan Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Workflow
+    participant Repo
+    participant LLM
+    participant Reports
+    
+    User->>CLI: npm run scan -r /path
+    CLI->>Workflow: Initialize with config
+    Workflow->>Repo: Clone/validate repo
+    Repo-->>Workflow: Repository ready
+    
+    Workflow->>Repo: Discover Python files
+    Repo-->>Workflow: Filtered file list
+    
+    Workflow->>LLM: Summarize README
+    LLM-->>Workflow: Context summary
+    
+    loop For each file
+        Workflow->>LLM: Phase 1: Initial analysis
+        LLM-->>Workflow: Initial findings
+        
+        loop Up to 7 iterations
+            Workflow->>Repo: Resolve symbols
+            Repo-->>Workflow: Symbol definitions
+            Workflow->>LLM: Phase 2: Deep analysis
+            LLM-->>Workflow: Refined findings
+        end
+    end
+    
+    Workflow->>Reports: Generate all formats
+    Reports-->>User: Reports + cost summary
+```
+
+## Configuration Architecture
+
+### Configuration Sources (Priority Order)
+
+1. **Command-Line Arguments**: Highest priority
+2. **Environment Variables**: `.env` file
+3. **Configuration File**: `.vulnhuntr.yaml` in repo or home directory
+4. **Default Values**: Built-in defaults
+
+### Configuration Schema
+
+```yaml
+llm:
+  provider: anthropic | openai | ollama
+  model: string
+  temperature: 0.0
+  maxTokens: 8192
+
+analysis:
+  vuln_types: [LFI, RCE, SSRF, AFO, SQLI, XSS, IDOR]
+  min_confidence: 5
+  max_iterations: 7
+  exclude_paths: [tests/, docs/, venv/]
+
+cost:
+  max_budget_usd: number | null
+  track_costs: true
+  checkpoint: true
+
+reports:
+  output_dir: .vulnhuntr-reports
+  formats: [sarif, json, markdown, html, csv]
+
+github:
+  enabled: false
+  create_issues: false
+  labels: [security, vulnerability]
+```
+
+## Scalability Considerations
+
+### Performance Optimizations
+
+**File Filtering:**
+- 120+ regex patterns pre-filter to network-related files only
+- Skip tests, migrations, vendor code by default
+- Target specific files/directories for focused scans
+
+**Cost Management:**
+- Budget limits prevent runaway costs
+- Escalating cost detection warns early
+- Dry-run mode for zero-cost previews
+- Checkpointing prevents re-analysis on resume
+
+**Parallel Processing:**
+- Files analyzed sequentially (LLM API limits)
+- Symbol resolution parallelizable (future enhancement)
+- Report generation parallelized across formats
+
+### Extensibility Points
+
+**Adding Vulnerability Types:**
+1. Define pattern in `src/prompts/index.ts`
+2. Add to `VulnType` enum in `src/schemas/index.ts`
+3. Create detection prompt with examples
+4. Update CLI help and documentation
+
+**Custom LLM Providers:**
+1. Implement `LLMProvider` interface
+2. Add to provider factory in `src/llm/index.ts`
+3. Update configuration schema
+4. Add cost calculation method
+
+**New Report Formats:**
+1. Implement `ReportFormatter` interface
+2. Add to reporters registry in `src/reporters/index.ts`
+3. Define file extension and MIME type
+4. Update configuration options
+
+**Custom Tools:**
+1. Create tool using VoltAgent `defineTool`
+2. Add to tools registry in `src/tools/index.ts`
+3. Register with workflow in `src/workflows/vulnhuntr.ts`
+4. Document usage and parameters
+
+## Security Considerations
+
+**API Key Protection:**
+- Keys stored in `.env` (gitignored)
+- Never logged or exposed in reports
+- Use environment variable injection in CI/CD
+
+**Repository Handling:**
+- Temporary clones cleaned up after analysis
+- No modification of source repositories
+- Read-only file operations
+
+**Output Sanitization:**
+- Code snippets truncated to prevent data leaks
+- Sensitive paths can be anonymized
+- Reports stored locally by default
+
+## Monitoring and Observability
+
+### VoltOps Platform Integration
+
+**Local Development:**
+- Real-time workflow visualization
+- Step-by-step execution tracking
+- No data leaves local machine
+- Connect at http://localhost:3141
+
+**Production:**
+- Cloud-based monitoring with API keys
+- Execution logs and metrics
+- Performance analytics
+- Error tracking and alerts
+
+### Logging
+
+**Log Levels:**
+- `0`: Silent
+- `1`: Errors only (default)
+- `2`: Warnings
+- `3`: Info (verbose)
+- `4`: Debug (very verbose)
+
+**Log Output:**
+- Console output with colors
+- Optional file logging
+- Structured JSON logs for parsing
+- Cost data always logged to separate file
+
+## Deployment Architectures
+
+### Serverless / Single-Run
+```
+User → CLI → LLM APIs → Local Reports
+```
+Best for: Ad-hoc scans, CI/CD jobs
+
+### Server / API Mode
+```
+User → REST API → Workflow Queue → LLM APIs → Storage
+```
+Best for: Continuous scanning, team usage
+
+### Containerized
+```
+Docker → VulnHuntr-Volt → Mounted Volume Reports
+```
+Best for: Reproducible environments, multi-tenant
+
+### CI/CD Integration
+```
+GitHub Action → Docker Container → SARIF Upload → Security Tab
+```
+Best for: Automated security scanning in pipelines
 
 ## Future Enhancements
 
 ### Planned Features
 
-1. **Dynamic Agent Loading**: Load agents based on file context
-2. **Agent Metrics**: Track which agents are most used
-3. **Context Caching**: Cache frequently-used sub-agents
-4. **User Preferences**: Let users prefer certain agents
-5. **Agent Versioning**: Track sub-agent versions separately
+1. **Incremental Scanning**: Only analyze changed files
+2. **Caching Layer**: Cache analysis results to reduce costs
+3. **Parallel File Analysis**: Concurrent file processing
+4. **Custom Rule Engine**: User-defined vulnerability patterns
+5. **Historical Tracking**: Monitor vulnerability trends over time
+6. **Team Dashboard**: Centralized view for multiple projects
+7. **False Positive Learning**: ML-based false positive reduction
+
+### Community Contributions
+
+Areas for contribution:
+- New vulnerability type patterns
+- Additional LLM provider implementations
+- Report format generators
+- Integration connectors (Jira, ServiceNow, etc.)
+- Performance optimizations
+- Test coverage improvements
 
 ---
 
-**This architecture ensures fast, accurate, context-efficient responses by intelligently routing questions to specialized experts rather than loading everything at once.**
+**This architecture provides a scalable, cost-effective, and extensible platform for AI-powered vulnerability analysis of Python codebases.**

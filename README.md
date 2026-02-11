@@ -8,71 +8,81 @@
   </p>
 </div>
 
-An AI-powered vulnerability scanner for Python repositories, built on [VoltAgent](https://voltagent.dev). Full port of the original [VulnHuntr](https://github.com/protectai/vulnhuntr) project with enhanced cost tracking, checkpoint/resume, and multiple report formats.
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
-- Anthropic API Key (recommended) or OpenAI API Key
-  - Get key at: <https://console.anthropic.com/settings/keys>
+- Git
+- Anthropic API Key (optional - can configure later)
+  - Get your key at: <https://console.anthropic.com/settings/keys>
 
 ### Installation
 
 ```bash
+# Clone the repository (if not created via create-voltagent-app)
 git clone https://github.com/diaz3618/vulnhuntr-volt.git
 cd vulnhuntr-volt
+
+# Install dependencies
 npm install
+
+# Copy environment variables
 cp .env.example .env
 ```
 
-Edit `.env`:
+### Configuration
+
+Edit `.env` file with your API keys:
 
 ```env
 ANTHROPIC_API_KEY=your-api-key-here
+
+# VoltOps Platform (Optional)
+# Get your keys at https://console.voltagent.dev/tracing-setup
+# VOLTAGENT_PUBLIC_KEY=your-public-key
+# VOLTAGENT_SECRET_KEY=your-secret-key
 ```
 
-### Run a Scan
+### Running the Application
 
 ```bash
-# Analyze a local repository
-npm run scan -- -r /path/to/python-project
+# Development mode (with hot reload)
+npm run dev
 
-# Analyze a GitHub repository
-npm run scan -- -r https://github.com/owner/repo
+# Production build
+npm run build
 
-# With budget limit
-npm run scan -- -r /path/to/project -b 5.00
+# Start production server
+npm start
 ```
-
-See [Usage Guide](docs/usage-guide.md) for all options and examples.
 
 ## Features
 
-**Security Analysis:**
-- 7 Vulnerability Types: LFI, RCE, SSRF, AFO, SQLI, XSS, IDOR
-- Two-Phase Analysis: Initial scan + iterative deep analysis with symbol resolution
-- 120+ Network Patterns: Auto-detects security-relevant Python files
-- Multiple LLM Providers: Anthropic Claude, OpenAI GPT, Ollama (local)
+This VoltAgent application is a full port of [VulnHuntr](https://github.com/protectai/vulnhuntr) — an AI-powered vulnerability scanner for Python repositories:
 
-**Cost Management:**
-- Real-time cost tracking with per-file, per-iteration, and total limits
-- Budget enforcement with escalating-cost detection
-- Dry-run mode for cost-free preview
-- Detailed cost reports with token usage breakdown
+- **7 Vulnerability Types**: LFI, RCE, SSRF, AFO, SQLI, XSS, IDOR
+- **Two-Phase Analysis**: Initial scan + iterative deep analysis with symbol resolution
+- **Claude Prefill Trick**: Forces structured JSON output from Claude models
+- **120+ Network Patterns**: Auto-detects security-relevant Python files (Flask, FastAPI, Django, Tornado, aiohttp, Starlette, Pyramid, Bottle, and many more)
+- **6 Report Formats**: SARIF, JSON, Markdown, HTML, CSV, and cost summary
+- **Cost Tracking & Budget Enforcement**: Per-file, per-iteration, and total cost limits with escalating-cost detection
+- **Checkpoint/Resume**: Gracefully handles SIGINT; resumes interrupted scans
+- **Config File Support**: `.vulnhuntr.yaml` in project root or home directory
+- **GitHub Clone & Analyze**: Accepts GitHub URLs directly
+- **MCP Integration**: Optional filesystem, ripgrep, tree-sitter, process, and CodeQL MCP servers
+- **Webhook Notifications**: Slack, Discord, Microsoft Teams, and generic JSON with HMAC-SHA256 signing
+- **GitHub Issues Integration**: Auto-create issues with duplicate detection
 
-**Reporting & Integration:**
-- 6 Report Formats: SARIF, JSON, Markdown, HTML, CSV, Cost Summary
-- GitHub Security Tab integration (SARIF upload)
-- GitHub Issues auto-creation with duplicate detection
-- Webhook notifications: Slack, Discord, MS Teams
+### How It Works
 
-**Development Features:**
-- Checkpoint/Resume: Gracefully handles interruptions
-- MCP Integration: Optional filesystem, ripgrep, tree-sitter, process, CodeQL servers
-- Configuration: `.vulnhuntr.yaml` or environment variables
-- CLI and REST API interfaces
+1. **Repository Setup** — Clone GitHub repos or use local paths
+2. **File Discovery** — Scan for Python files, filter to network-related ones using 120+ regex patterns
+3. **README Summarization** — LLM summarizes the README for security context
+4. **Per-File Analysis**:
+   - **Phase 1**: Initial analysis across all 7 vuln types simultaneously
+   - **Phase 2**: Iterative deep analysis per vuln type with symbol resolution (up to 7 iterations)
+5. **Report Generation** — Writes SARIF, JSON, Markdown, HTML, CSV reports + cost log
 
 ### Supported Vulnerability Types
 
@@ -85,32 +95,6 @@ See [Usage Guide](docs/usage-guide.md) for all options and examples.
 | SQLI | CWE-89 | SQL Injection |
 | XSS | CWE-79 | Cross-Site Scripting |
 | IDOR | CWE-639 | Insecure Direct Object Reference |
-
-## Agent Orchestration System
-
-This workspace includes an **intelligent agent orchestration system** for GitHub Copilot that prevents context flooding:
-
-- **Main Orchestrator**: `.agents/AGENT.md` - Automatically loaded by VS Code
-- **Specialized Sub-Agents**: Domain-specific experts (VoltAgent, TypeScript, Git, Docker, etc.)
-- **Smart Delegation**: Only loads relevant agents (1-3 max) for each question
-- **60-80% Context Reduction**: Faster responses, lower costs, higher accuracy
-
-### Available Sub-Agents
-
-- **VoltAgent Development**: Agents, workflows, tools, VoltAgent API
-- **VoltAgent Documentation**: Skills, examples, best practices
-- **TypeScript Development**: TypeScript, Node.js, build configuration
-- **Git Operations**: Commits, branches, version control
-- **Infrastructure**: Docker, deployment, CI/CD
-
-### How It Works
-
-1. You ask Copilot a question
-2. Main orchestrator analyzes the domain
-3. Loads only relevant sub-agent(s)
-4. Provides fast, accurate, researched answer
-
-**Learn More**: [.agents/README.md](.agents/README.md)
 
 ## VoltOps Platform
 
@@ -160,10 +144,10 @@ vulnhuntr-volt/
 │   ├── checkpoint/           # Checkpoint/resume system
 │   ├── integrations/         # GitHub issues & webhooks
 │   └── mcp/                  # MCP server integration
-├── repos/vulnhuntr/          # Original Python implementation (reference)
 ├── docs/                     # Documentation
-├── .agents/                  # Copilot agent orchestration
-└── .voltagent/               # Agent memory storage
+├── tests/                    # Test files
+├── Dockerfile                # Docker configuration
+└── package.json              # Project dependencies
 ```
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.
@@ -195,10 +179,4 @@ Contributions are welcome! Please see the [Development Guide](docs/development.m
 
 ## License
 
-MIT License - see LICENSE file for details
-
----
-
-<div align="center">
-  <p>Built with ❤️ using <a href="https://voltagent.dev">VoltAgent</a></p>
-</div>
+MIT License - see [LICENSE](LICENSE) file for details
